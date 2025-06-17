@@ -1,6 +1,5 @@
 fastapi
 uvicorn
 httpx
-python-dotenv
 loguru
-requests
+python-dotenv

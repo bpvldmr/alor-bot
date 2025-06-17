@@ -1,67 +1,55 @@
+from config import TICKER_MAP, MAX_QTY, ADD_QTY
+from loguru import logger
 
-import requests
-from config import ACCOUNT_ID, TICKER_MAP
-from auth import get_access_token
-
-CURRENT_POSITIONS = {
-    "CRU5": 0,
-    "NGN5": 0
-}
-
-BASE_URL = "https://api.alor.ru"
-
-def send_order(instrument, side, quantity):
-    token = get_access_token()
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-
-    url = f"{BASE_URL}/commandapi/warptrans/TRADE/v2/client/orders/market"
-    payload = {
-        "instrument": instrument,
-        "side": side,
-        "quantity": quantity,
-        "client": ACCOUNT_ID,
-        "exchange": "MOEX",
-        "ticker": instrument
-    }
-
-    response = requests.post(url, json=payload, headers=headers)
-    if response.ok:
-        print(f"✅ Заявка отправлена: {side} {quantity} {instrument}")
-    else:
-        print("❌ Ошибка отправки заявки:", response.text)
+CURRENT_POSITIONS = {v["trade"]: 0 for v in TICKER_MAP.values()}
 
 def process_signal(signal_ticker: str, action: str):
     if signal_ticker not in TICKER_MAP:
-        return {"error": f"Неизвестный сигнал: {signal_ticker}"}
+        return {"error": f"Unknown ticker: {signal_ticker}"}
 
-    trade_info = TICKER_MAP[signal_ticker]
-    trade_ticker = trade_info["trade"]
-    target_qty = trade_info["qty"]
+    info = TICKER_MAP[signal_ticker]
+    trade_ticker = info["trade"]
+    add_qty = ADD_QTY[trade_ticker]
+    max_qty = MAX_QTY[trade_ticker]
     current_pos = CURRENT_POSITIONS.get(trade_ticker, 0)
 
-    if (action == "buy" and current_pos > 0) or (action == "sell" and current_pos < 0):
-        add_qty = 20 if trade_ticker == "CRU5" else 5
-        max_qty = 140 if trade_ticker == "CRU5" else 20
-        new_qty = min(abs(current_pos) + add_qty, max_qty)
-        CURRENT_POSITIONS[trade_ticker] = new_qty if action == "buy" else -new_qty
-        send_order(trade_ticker, "Buy" if action == "buy" else "Sell", add_qty)
-        return {"усреднение": f"{trade_ticker} => {new_qty}"}
+    if action == "buy":
+        new_pos = min(current_pos + add_qty, max_qty)
+    elif action == "sell":
+        new_pos = max(current_pos - add_qty, -max_qty)
+    else:
+        return {"error": f"Unknown action: {action}"}
 
-    if (current_pos > 0 and action == "sell") or (current_pos < 0 and action == "buy"):
-        close_side = "Sell" if current_pos > 0 else "Buy"
-        send_order(trade_ticker, close_side, abs(current_pos))
-        CURRENT_POSITIONS[trade_ticker] = 0
+    actions = []
 
-    open_qty = target_qty
-    open_side = "Buy" if action == "buy" else "Sell"
-    send_order(trade_ticker, open_side, open_qty)
-    CURRENT_POSITIONS[trade_ticker] = open_qty if action == "buy" else -open_qty
+    if (current_pos > 0 and new_pos < 0) or (current_pos < 0 and new_pos > 0):
+        actions.append({
+            "instrument": trade_ticker,
+            "side": "Sell" if current_pos > 0 else "Buy",
+            "qty": abs(current_pos),
+            "type": "close"
+        })
+        actions.append({
+            "instrument": trade_ticker,
+            "side": "Buy" if new_pos > 0 else "Sell",
+            "qty": abs(new_pos),
+            "type": "open"
+        })
+    elif new_pos != current_pos:
+        side = "Buy" if new_pos > current_pos else "Sell"
+        actions.append({
+            "instrument": trade_ticker,
+            "side": side,
+            "qty": abs(new_pos - current_pos),
+            "type": "adjust"
+        })
+
+    CURRENT_POSITIONS[trade_ticker] = new_pos
 
     return {
         "signal": signal_ticker,
         "trading": trade_ticker,
-        "position": CURRENT_POSITIONS[trade_ticker]
+        "current_position": current_pos,
+        "new_position": new_pos,
+        "actions": actions
     }
