@@ -1,17 +1,23 @@
-
 from fastapi import FastAPI, Request
 from trading import process_signal
+from loguru import logger
 
 app = FastAPI()
 
 @app.post("/webhook")
 async def webhook(request: Request):
-    data = await request.json()
-    signal_ticker = data.get("signal_ticker")
-    action = data.get("action")
+    try:
+        data = await request.json()
+        signal_ticker = data.get("signal_ticker")
+        action = data.get("action")
 
-    if not signal_ticker or not action:
-        return {"error": "Нужно передать signal_ticker и action"}
+        if not signal_ticker or not action:
+            return {"error": "Нужно передать signal_ticker и action"}
 
-    result = process_signal(signal_ticker, action)
-    return result
+        result = process_signal(signal_ticker, action)
+        logger.info(f"Сигнал: {signal_ticker}, действие: {action} → {result}")
+        return result
+
+    except Exception as e:
+        logger.error(f"Ошибка: {e}")
+        return {"error": str(e)}
