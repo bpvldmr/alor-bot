@@ -11,7 +11,7 @@ ACCESS_TOKEN = None
 
 def get_access_token():
     global ACCESS_TOKEN
-    url = "https://oauth.alor.ru/refresh"
+    url = "https://oauth.alor.ru/token"
 
     logger.debug(f"REFRESH_TOKEN={REFRESH_TOKEN}")
     logger.debug(f"CLIENT_ID={CLIENT_ID}")
@@ -19,11 +19,11 @@ def get_access_token():
     logger.debug(f"REDIRECT_URI={REDIRECT_URI}")
 
     payload = {
+        "grant_type": "refresh_token",
         "refresh_token": REFRESH_TOKEN,
         "client_id": CLIENT_ID,
         "client_secret": CLIENT_SECRET,
-        "redirect_uri": REDIRECT_URI,
-        "grant_type": "refresh_token"
+        "redirect_uri": REDIRECT_URI
     }
 
     try:
