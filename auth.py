@@ -2,7 +2,7 @@ import os
 import requests
 from loguru import logger
 
-# ✅ Берём переменные из окружения Render
+
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
@@ -13,6 +13,13 @@ ACCESS_TOKEN = None
 def get_access_token():
     global ACCESS_TOKEN
     url = "https://oauth.alor.ru/refresh"
+
+   
+    logger.debug(f"REFRESH_TOKEN={REFRESH_TOKEN}")
+    logger.debug(f"CLIENT_ID={CLIENT_ID}")
+    logger.debug(f"CLIENT_SECRET={CLIENT_SECRET}")
+    logger.debug(f"REDIRECT_URI={REDIRECT_URI}")
+
     payload = {
         "refresh_token": REFRESH_TOKEN,
         "client_id": CLIENT_ID,
