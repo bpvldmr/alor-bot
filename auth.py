@@ -1,10 +1,12 @@
+import os
 import requests
 from loguru import logger
 
-REFRESH_TOKEN = "a0facbb9-aadd-4f67-88e0-1204dcd392b5"
-CLIENT_ID = "93e214f3a9e74524a075"
-CLIENT_SECRET = "TmAUmTAz6JJbhLZZguRzoP3p5dJ9RUrvlAzz19Y9U0U="
-REDIRECT_URI = "https://oauth.alor.ru/blank.html"
+# ✅ Берём переменные из окружения Render
+CLIENT_ID = os.getenv("CLIENT_ID")
+CLIENT_SECRET = os.getenv("CLIENT_SECRET")
+REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
+REDIRECT_URI = os.getenv("REDIRECT_URI")
 
 ACCESS_TOKEN = None
 
