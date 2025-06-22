@@ -1,6 +1,7 @@
 import os
 import time
 import requests
+from telegram_logger import send_telegram_log  # Добавляем логгер Telegram
 
 # === ALOR из окружения Render ===
 CLIENT_ID = os.getenv("CLIENT_ID")
@@ -8,6 +9,7 @@ CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
 ACCOUNT_ID = os.getenv("ACCOUNT_ID")
 
+# === Внутренние переменные ===
 _access_token = None
 _access_token_expires = 0
 
@@ -26,6 +28,11 @@ def get_access_token():
     data = response.json()
     _access_token = data["access_token"]
     _access_token_expires = time.time() + data["expires_in"]
+
+    # 🟢 Telegram лог об обновлении
+    timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+    send_telegram_log(f"🔁 access_token обновлён в {timestamp}")
+
     return _access_token
 
 # === Тикеры ===
@@ -48,6 +55,6 @@ ADD_QTY = {
     "NGN5": 1
 }
 
-# === Telegram (оставляем как есть, раз на Render не задано) ===
+# === Telegram (оставляем фиксировано) ===
 TELEGRAM_TOKEN = "7610150119:AAGMzDYUdcI6QQuvt-Vsg8U4s1VSYarLIe0"
 TELEGRAM_CHAT_ID = 205721225
