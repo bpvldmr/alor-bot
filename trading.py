@@ -1,5 +1,3 @@
-# trading.py
-
 from datetime import datetime
 import requests
 from config import (
@@ -79,7 +77,9 @@ def close_position(ticker):
 
 def handle_signal(tv_ticker, signal):
     if is_weekend():
-        print("⛔ Выходной день. Торговля запрещена.")
+        msg = f"⛔ Сигнал {signal} по {tv_ticker} отклонён — выходной день."
+        print(msg)
+        send_telegram_log(msg)
         return {"error": "Выходной день. Торговля запрещена."}
 
     if tv_ticker not in TICKER_MAP:
