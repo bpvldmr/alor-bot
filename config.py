@@ -1,12 +1,12 @@
-import requests
+import os
 import time
+import requests
 
-# === Настройки ALOR API ===
-CLIENT_ID = "93e214f3a9e74524a075"
-CLIENT_SECRET = "TmAUmTAz6JJbhLZZguRzoP3p5dJ9RUrvlAzz19Y9U0U="
-REFRESH_TOKEN = "a0facbb9-aadd-4f67-88e0-1204dcd392b5"
-
-ACCOUNT_ID = "7502QAB"
+# === ALOR из окружения Render ===
+CLIENT_ID = os.getenv("CLIENT_ID")
+CLIENT_SECRET = os.getenv("CLIENT_SECRET")
+REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
+ACCOUNT_ID = os.getenv("ACCOUNT_ID")
 
 _access_token = None
 _access_token_expires = 0
@@ -28,7 +28,7 @@ def get_access_token():
     _access_token_expires = time.time() + data["expires_in"]
     return _access_token
 
-# === Соответствие тикеров TradingView и тикеров Alor ===
+# === Тикеры ===
 TICKER_MAP = {
     "MOEX:CRU2025": {"trade": "CRU5"},
     "MOEX:NGN2025": {"trade": "NGN5"}
@@ -39,17 +39,15 @@ START_QTY = {
     "CRU5": 5,
     "NGN5": 3
 }
-
 MAX_QTY = {
     "CRU5": 9,
     "NGN5": 5
 }
-
 ADD_QTY = {
     "CRU5": 2,
     "NGN5": 1
 }
 
-# === Настройки Telegram ===
+# === Telegram (оставляем как есть, раз на Render не задано) ===
 TELEGRAM_TOKEN = "7610150119:AAGMzDYUdcI6QQuvt-Vsg8U4s1VSYarLIe0"
 TELEGRAM_CHAT_ID = 205721225
