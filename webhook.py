@@ -4,7 +4,7 @@ from loguru import logger
 
 webhook_router = APIRouter()
 
-@webhook_router.post("/webhook")
+@webhook_router.post("/webhook/9f3c7e23da9f49bd84f243acbc2af21a")
 async def webhook(request: Request):
     try:
         data = await request.json()
