@@ -1,7 +1,6 @@
-# trading.py
-
 from datetime import datetime
 from config import TICKER_MAP, START_QTY, MAX_QTY, ADD_QTY, ACCOUNT_ID
+from loguru import logger
 
 # Текущее состояние позиций
 current_positions = {
@@ -11,11 +10,17 @@ current_positions = {
 
 def is_weekend():
     today = datetime.utcnow().weekday()  # 0 = Пн, 6 = Вс
-    return today in [5, 6]  # Сб или Вс
+    return today in [5, 6]  # Суббота или Воскресенье
 
 def place_market_order(ticker, side, quantity):
-    # Здесь будет вызов API ALOR на исполнение заявки
-    print(f"➡️ {side.upper()} {quantity} контрактов по {ticker} (рынок)")
+    # Здесь будет вызов API ALOR
+    logger.info(f"➡️ {side.upper()} {quantity} контрактов по {ticker} (рынок)")
+    return {
+        "status": "order_sent",
+        "ticker": ticker,
+        "side": side,
+        "qty": quantity
+    }
 
 def close_position(ticker):
     qty = current_positions[ticker]
@@ -24,42 +29,50 @@ def close_position(ticker):
     elif qty < 0:
         place_market_order(ticker, "buy", abs(qty))
     current_positions[ticker] = 0
-    print(f"❌ Позиция по {ticker} закрыта")
+    logger.info(f"❌ Позиция по {ticker} закрыта")
 
-def handle_signal(tv_ticker, signal):  # signal = "LONG" или "SHORT"
+def process_signal(signal_ticker: str, action: str):
+    action = action.upper()
+
     if is_weekend():
-        print(f"⛔ Сигнал получен в выходной день. Торговля запрещена.")
-        return
+        logger.warning("⛔ Сигнал получен в выходной день. Торговля запрещена.")
+        return {"error": "Выходной день. Торговля запрещена."}
 
-    if tv_ticker not in TICKER_MAP:
-        print(f"⚠️ Неизвестный тикер: {tv_ticker}")
-        return
+    if signal_ticker not in TICKER_MAP:
+        logger.error(f"⚠️ Неизвестный тикер: {signal_ticker}")
+        return {"error": f"Неизвестный тикер: {signal_ticker}"}
 
-    ticker = TICKER_MAP[tv_ticker]["trade"]
-    direction = 1 if signal == "LONG" else -1
+    if action not in ["LONG", "SHORT"]:
+        logger.error(f"Unknown action: {action}")
+        return {"error": f"Unknown action: {action}"}
+
+    ticker = TICKER_MAP[signal_ticker]["trade"]
+    direction = 1 if action == "LONG" else -1
     current_qty = current_positions[ticker]
 
-    # Усреднение по направлению
+    logger.debug(f"Обработка сигнала: {signal_ticker} → {ticker}, действие: {action}, текущее: {current_qty}")
+
+    # Усреднение в ту же сторону
     if current_qty * direction > 0:
         new_qty = current_qty + ADD_QTY[ticker]
         if abs(new_qty) > MAX_QTY[ticker]:
-            print(f"🚫 Достигнут лимит по {ticker}. Пропуск.")
-            return
-        place_market_order(ticker, signal.lower(), ADD_QTY[ticker])
+            logger.warning(f"🚫 Достигнут лимит по {ticker}. Пропуск.")
+            return {"status": "limit_reached", "ticker": ticker}
+        place_market_order(ticker, action.lower(), ADD_QTY[ticker])
         current_positions[ticker] = new_qty
-        print(f"➕ Усреднение: теперь {ticker} = {new_qty} контрактов")
+        return {"status": "added", "ticker": ticker, "new_qty": new_qty}
 
-    # Обратный сигнал — закрываем и открываем новую позицию
+    # Обратный сигнал — закрыть старую и открыть новую
     elif current_qty * direction < 0:
         close_position(ticker)
         start_qty = START_QTY[ticker]
-        place_market_order(ticker, signal.lower(), start_qty)
+        place_market_order(ticker, action.lower(), start_qty)
         current_positions[ticker] = direction * start_qty
-        print(f"🔄 Обратный сигнал: открыта новая позиция по {ticker} = {start_qty}")
+        return {"status": "reversed", "ticker": ticker, "qty": start_qty}
 
-    # Новая позиция
+    # Первая позиция
     elif current_qty == 0:
         start_qty = START_QTY[ticker]
-        place_market_order(ticker, signal.lower(), start_qty)
+        place_market_order(ticker, action.lower(), start_qty)
         current_positions[ticker] = direction * start_qty
-        print(f"✅ Открыта позиция по {ticker} = {start_qty}")
+        return {"status": "opened", "ticker": ticker, "qty": start_qty}
