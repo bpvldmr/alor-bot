@@ -1,7 +1,5 @@
-# balance.py
-
 from fastapi import APIRouter
-from config import get_current_balance
+from trading import get_current_balance  # Заменено с config на trading
 from telegram_logger import send_telegram_log
 
 balance_router = APIRouter()
