@@ -1,55 +1,65 @@
-from config import TICKER_MAP, MAX_QTY, ADD_QTY
-from loguru import logger
+# trading.py
 
-CURRENT_POSITIONS = {v["trade"]: 0 for v in TICKER_MAP.values()}
+from datetime import datetime
+from config import TICKER_MAP, START_QTY, MAX_QTY, ADD_QTY, ACCOUNT_ID
 
-def process_signal(signal_ticker: str, action: str):
-    if signal_ticker not in TICKER_MAP:
-        return {"error": f"Unknown ticker: {signal_ticker}"}
+# Текущее состояние позиций
+current_positions = {
+    "CRU5": 0,
+    "NGN5": 0
+}
 
-    info = TICKER_MAP[signal_ticker]
-    trade_ticker = info["trade"]
-    add_qty = ADD_QTY[trade_ticker]
-    max_qty = MAX_QTY[trade_ticker]
-    current_pos = CURRENT_POSITIONS.get(trade_ticker, 0)
+def is_weekend():
+    today = datetime.utcnow().weekday()  # 0 = Пн, 6 = Вс
+    return today in [5, 6]  # Сб или Вс
 
-    if action == "buy":
-        new_pos = min(current_pos + add_qty, max_qty)
-    elif action == "sell":
-        new_pos = max(current_pos - add_qty, -max_qty)
-    else:
-        return {"error": f"Unknown action: {action}"}
+def place_market_order(ticker, side, quantity):
+    # Здесь будет вызов API ALOR на исполнение заявки
+    print(f"➡️ {side.upper()} {quantity} контрактов по {ticker} (рынок)")
 
-    actions = []
+def close_position(ticker):
+    qty = current_positions[ticker]
+    if qty > 0:
+        place_market_order(ticker, "sell", qty)
+    elif qty < 0:
+        place_market_order(ticker, "buy", abs(qty))
+    current_positions[ticker] = 0
+    print(f"❌ Позиция по {ticker} закрыта")
 
-    if (current_pos > 0 and new_pos < 0) or (current_pos < 0 and new_pos > 0):
-        actions.append({
-            "instrument": trade_ticker,
-            "side": "Sell" if current_pos > 0 else "Buy",
-            "qty": abs(current_pos),
-            "type": "close"
-        })
-        actions.append({
-            "instrument": trade_ticker,
-            "side": "Buy" if new_pos > 0 else "Sell",
-            "qty": abs(new_pos),
-            "type": "open"
-        })
-    elif new_pos != current_pos:
-        side = "Buy" if new_pos > current_pos else "Sell"
-        actions.append({
-            "instrument": trade_ticker,
-            "side": side,
-            "qty": abs(new_pos - current_pos),
-            "type": "adjust"
-        })
+def handle_signal(tv_ticker, signal):  # signal = "LONG" или "SHORT"
+    if is_weekend():
+        print(f"⛔ Сигнал получен в выходной день. Торговля запрещена.")
+        return
 
-    CURRENT_POSITIONS[trade_ticker] = new_pos
+    if tv_ticker not in TICKER_MAP:
+        print(f"⚠️ Неизвестный тикер: {tv_ticker}")
+        return
 
-    return {
-        "signal": signal_ticker,
-        "trading": trade_ticker,
-        "current_position": current_pos,
-        "new_position": new_pos,
-        "actions": actions
-    }
+    ticker = TICKER_MAP[tv_ticker]["trade"]
+    direction = 1 if signal == "LONG" else -1
+    current_qty = current_positions[ticker]
+
+    # Усреднение по направлению
+    if current_qty * direction > 0:
+        new_qty = current_qty + ADD_QTY[ticker]
+        if abs(new_qty) > MAX_QTY[ticker]:
+            print(f"🚫 Достигнут лимит по {ticker}. Пропуск.")
+            return
+        place_market_order(ticker, signal.lower(), ADD_QTY[ticker])
+        current_positions[ticker] = new_qty
+        print(f"➕ Усреднение: теперь {ticker} = {new_qty} контрактов")
+
+    # Обратный сигнал — закрываем и открываем новую позицию
+    elif current_qty * direction < 0:
+        close_position(ticker)
+        start_qty = START_QTY[ticker]
+        place_market_order(ticker, signal.lower(), start_qty)
+        current_positions[ticker] = direction * start_qty
+        print(f"🔄 Обратный сигнал: открыта новая позиция по {ticker} = {start_qty}")
+
+    # Новая позиция
+    elif current_qty == 0:
+        start_qty = START_QTY[ticker]
+        place_market_order(ticker, signal.lower(), start_qty)
+        current_positions[ticker] = direction * start_qty
+        print(f"✅ Открыта позиция по {ticker} = {start_qty}")
