@@ -10,10 +10,13 @@ app.include_router(webhook_router)
 @app.on_event("startup")
 async def startup_event():
     logger.info("🚀 Запуск приложения")
-    asyncio.create_task(refresh_token_loop())  # 🔄 Запускаем цикл обновления токена
+    asyncio.create_task(refresh_token_loop())
 
 async def refresh_token_loop():
     while True:
         logger.info("🔁 Обновление access_token...")
-        get_access_token()
-        await asyncio.sleep(3300)  # Обновляем каждые ~55 минут
+        try:
+            await asyncio.to_thread(get_access_token)
+        except Exception as e:
+            logger.error(f"❌ Ошибка обновления access_token: {e}")
+        await asyncio.sleep(3300)  # ≈55 минут
