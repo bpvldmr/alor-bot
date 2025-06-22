@@ -1,3 +1,5 @@
+# trading.py
+
 from datetime import datetime
 import requests
 from config import (
@@ -139,3 +141,6 @@ def get_position_snapshot():
             price = entry_prices.get(ticker, "?")
             snapshot += f"{ticker}: {qty:+} контрактов @ {price}\n"
     return snapshot if snapshot else "нет"
+
+# === Экспорт правильного имени для webhook ===
+process_signal = handle_signal
