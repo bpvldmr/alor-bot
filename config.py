@@ -18,8 +18,9 @@ def get_access_token():
     if time.time() < _access_token_expires - 60:
         return _access_token
 
-    url = "https://api.alor.ru/refresh"
+    url = "https://oauth.alor.ru/token"
     response = requests.post(url, data={
+        "grant_type": "refresh_token",
         "refresh_token": REFRESH_TOKEN,
         "client_id": CLIENT_ID,
         "client_secret": CLIENT_SECRET
