@@ -20,7 +20,7 @@ def get_current_balance():
     try:
         access_token = get_access_token()
         headers = {"Authorization": f"Bearer {access_token}"}
-        url = f"https://api.alor.ru/md/v2/Clients/{ACCOUNT_ID}/summary"
+        url = f"https://api.alor.ru/trade/v2/clients/{ACCOUNT_ID}/summary"
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         data = response.json()
