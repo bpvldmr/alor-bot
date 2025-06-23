@@ -41,7 +41,6 @@ def get_current_balance():
         "Authorization": f"Bearer {get_access_token()}"
     }
 
-    # Логируем сам запрос
     send_telegram_log(f"📤 Запрос баланса ALOR:\n{url}")
 
     try:
@@ -49,11 +48,18 @@ def get_current_balance():
         response.raise_for_status()
         data = response.json()
 
-        # Логируем весь ответ от ALOR
-        send_telegram_log(f"📩 Ответ ALOR:\n{data}")
+        import json
+        send_telegram_log(f"📩 RAW ответ от ALOR:\n{json.dumps(data, indent=2, ensure_ascii=False)}")
 
-        cash = data.get("moneySummary", {}).get("cash", 0)
-        return cash
+        portfolio = data.get("portfolio", {})
+        money = data.get("moneySummary", {})
+
+        cash1 = portfolio.get("equity", 0)
+        cash2 = money.get("cash", 0)
+
+        send_telegram_log(f"💸 Доступно по equity: {cash1}₽\n💵 Доступно по moneySummary.cash: {cash2}₽")
+
+        return cash1 if cash1 else cash2
 
     except requests.exceptions.RequestException as e:
         send_telegram_log(f"❌ Ошибка при запросе баланса: {e}")
