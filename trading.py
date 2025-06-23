@@ -1,7 +1,7 @@
 from datetime import datetime
 from config import (
     TICKER_MAP, START_QTY, MAX_QTY, ADD_QTY,
-    ACCOUNT_ID, get_access_token
+    ACCOUNT_ID, get_access_token, get_current_balance  # добавлен импорт баланса
 )
 from telegram_logger import send_telegram_log
 from alor import place_order
@@ -16,26 +16,6 @@ entry_prices = {}  # Цена входа по каждой позиции
 def is_weekend():
     today = datetime.utcnow().weekday()
     return today in [5, 6]
-
-
-def get_current_balance():
-    try:
-        access_token = get_access_token()
-        headers = {"Authorization": f"Bearer {access_token}"}
-        url = f"https://api.alor.ru/trade/v2/clients/{ACCOUNT_ID}/summary?exchange=FORTS"
-
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        data = response.json()
-
-        # Логирование всей структуры ответа
-        send_telegram_log(f"📦 Ответ ALOR по балансу:\n{data}")
-
-        return float(data.get("portfolio", {}).get("equity", 0))
-    except Exception as e:
-        send_telegram_log(f"❌ Ошибка получения баланса: {e}")
-        return 0
-
 
 
 def place_market_order(ticker, side, quantity):
@@ -148,5 +128,5 @@ def get_position_snapshot():
     return snapshot if snapshot else "нет"
 
 
-# === Экспорт правильного имени для webhook ===
+# === Экспорт функции ===
 process_signal = handle_signal
