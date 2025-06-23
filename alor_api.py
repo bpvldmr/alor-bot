@@ -46,7 +46,7 @@ def place_order(order, token):
                     "status": "filled",
                     "order_id": order_id
                 }
-
+                
             elif status_data.get("status") in ["cancelled", "rejected"]:
                 return {"error": f"Заявка отклонена: {status_data.get('status')}"}
 
