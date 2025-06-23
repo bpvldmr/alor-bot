@@ -10,11 +10,10 @@ _expiry = 0
 
 async def get_access_token() -> str:
     global _access_token, _expiry
-    # Если ещё валиден — возвращаем
+    # Если токен ещё действителен — возвращаем
     if _access_token and time.time() < _expiry - 60:
         return _access_token
 
-    # По инструкции OAuth2 Alor:
     url = "https://oauth.alor.ru/token"
     payload = {
         "grant_type":    "refresh_token",
@@ -22,10 +21,13 @@ async def get_access_token() -> str:
         "client_id":     CLIENT_ID,
         "client_secret": CLIENT_SECRET
     }
-    resp = httpx.post(url, data=payload, timeout=10)
-    resp.raise_for_status()
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post(url, data=payload)
+        resp.raise_for_status()
+
     data = resp.json()
     _access_token = data["access_token"]
-    _expiry = time.time() + data["expires_in"]
+    _expiry = time.time() + data.get("expires_in", 1800)
     logger.debug("✅ Access token обновлён")
     return _access_token
