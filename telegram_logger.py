@@ -1,16 +1,13 @@
-# telegram_logger.py
+import httpx
+import os
 
-import requests
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT  = os.getenv("TELEGRAM_CHAT_ID")
 
-TELEGRAM_TOKEN = "7610150119:AAGMzDYUdcI6QQuvt-Vsg8U4s1VSYarLIe0"
-TELEGRAM_CHAT_ID = "205721225"
-
-def send_telegram_log(message: str):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    data = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message
-    }
-    response = requests.post(url, data=data)
-    if not response.ok:
-        print(f"Ошибка отправки в Telegram: {response.text}")
+async def send_telegram_log(text:str):
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    payload={"chat_id":CHAT,"text":text,"parse_mode":"Markdown"}
+    try:
+        await httpx.post(url, json=payload, timeout=5)
+    except Exception:
+        pass
