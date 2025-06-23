@@ -3,28 +3,35 @@ import json
 from telegram_logger import send_telegram_log
 from trading import handle_trading_signal
 
-router = APIRouter()
-SECRET = "sEcr09!@"
+webhook_router = APIRouter()
+SECRET_TOKEN = "sEcr09!@"
 
-@router.post("/webhook/{token}")
-async def webhook(token:str, request: Request):
-    # Маршрут: /webhook/sEcr09!@ 
-    if token != SECRET:
-        return {"status":"unauthorized"}
+@webhook_router.post("/webhook/{token}")
+async def webhook(token: str, request: Request):
+    # 1) Проверяем токен из URL
+    if token != SECRET_TOKEN:
+        send_telegram_log(f"❌ Неверный токен в URL: {token}")
+        return {"status": "unauthorized"}
 
-    raw = (await request.body()).decode()
+    # 2) Читаем тело
+    raw = (await request.body()).decode("utf-8")
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as e:
-        send_telegram_log(f"❌ JSON decode error: {e}\n{raw}")
-        return {"status":"invalid json"}
+        send_telegram_log(f"❌ JSON decode error: {e}\nRaw: {raw}")
+        return {"status": "invalid json"}
 
     send_telegram_log(f"📩 TV → Bot:\n```json\n{raw}\n```")
-    sig = data.get("action")
-    tkr = data.get("signal_ticker")
-    if not sig or not tkr:
-        return {"status":"invalid payload"}
 
-    res = await handle_trading_signal(tkr, sig.upper())
-    send_telegram_log(f"🔔 Result: {res}")
-    return {"status":"ok", "result":res}
+    # 3) Валидируем payload
+    action = data.get("action")
+    ticker = data.get("signal_ticker")
+    if not action or not ticker:
+        send_telegram_log("⚠️ Invalid payload: missing 'action' or 'signal_ticker'")
+        return {"status": "invalid payload"}
+
+    # 4) Обрабатываем сигнал
+    result = await handle_trading_signal(ticker, action.upper())
+    send_telegram_log(f"🔔 Result: {result}")
+
+    return {"status": "ok", "result": result}
