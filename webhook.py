@@ -3,10 +3,10 @@ import json
 from telegram_logger import send_telegram_log
 from trading import handle_trading_signal
 
-webhook_router = APIRouter()
+router = APIRouter()  # <-- теперь называется именно `router` (а не webhook_router)
 SECRET_TOKEN = "sEcr0901A2B3"  # ← новый простой токен
 
-@webhook_router.post("/webhook/{token}")
+@router.post("/webhook/{token}")
 async def webhook(token: str, request: Request):
     # 1) Проверяем токен из URL
     if token != SECRET_TOKEN:
