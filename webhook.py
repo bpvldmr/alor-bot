@@ -4,7 +4,7 @@ from telegram_logger import send_telegram_log
 from trading import handle_trading_signal
 
 webhook_router = APIRouter()
-SECRET_TOKEN = "sEcr09!@"
+SECRET_TOKEN = "sEcr0901A2B3"  # ← новый простой токен
 
 @webhook_router.post("/webhook/{token}")
 async def webhook(token: str, request: Request):
