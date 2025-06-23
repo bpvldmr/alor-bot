@@ -44,12 +44,12 @@ TICKER_MAP = {
 
 # === Параметры торговли ===
 START_QTY = {
-    "CRU5": 5,
-    "NGN5": 3
+    "CRU5": 4,
+    "NGN5": 1
 }
 MAX_QTY = {
-    "CRU5": 9,
-    "NGN5": 5
+    "CRU5": 8,
+    "NGN5": 2
 }
 ADD_QTY = {
     "CRU5": 2,
