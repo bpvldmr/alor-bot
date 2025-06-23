@@ -1,15 +1,15 @@
 import os
 import time
 import requests
-from telegram_logger import send_telegram_log  # Добавляем логгер Telegram
+from telegram_logger import send_telegram_log  # Логирование в Telegram
 
-# === ALOR из окружения Render ===
+# === ALOR из Render переменных окружения ===
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
 ACCOUNT_ID = os.getenv("ACCOUNT_ID")
 
-# === Внутренние переменные ===
+# === Внутренние переменные токена ===
 _access_token = None
 _access_token_expires = 0
 
@@ -30,19 +30,37 @@ def get_access_token():
     _access_token = data["access_token"]
     _access_token_expires = time.time() + data["expires_in"]
 
-    # 🟢 Telegram лог об обновлении
     timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
     send_telegram_log(f"🔁 access_token обновлён в {timestamp}")
 
     return _access_token
 
-# === Тикеры ===
+# === Получение текущего баланса с биржи FORTS ===
+def get_current_balance():
+    try:
+        token = get_access_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        url = f"https://api.alor.ru/trade/v2/clients/{ACCOUNT_ID}/summary?exchange=FORTS"
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+
+        # Логируем весь ответ от ALOR (можно отключить позже)
+        send_telegram_log(f"📦 Ответ ALOR по балансу:\n{data}")
+
+        equity = float(data.get("portfolio", {}).get("equity", 0))
+        return equity
+    except Exception as e:
+        send_telegram_log(f"❌ Ошибка получения баланса: {e}")
+        return 0
+
+# === Карта тикеров ===
 TICKER_MAP = {
     "MOEX:CRU2025": {"trade": "CRU5"},
     "MOEX:NGN2025": {"trade": "NGN5"}
 }
 
-# === Параметры торговли ===
+# === Параметры стратегии ===
 START_QTY = {
     "CRU5": 4,
     "NGN5": 1
@@ -56,6 +74,6 @@ ADD_QTY = {
     "NGN5": 1
 }
 
-# === Telegram (оставляем фиксировано) ===
+# === Telegram логирование ===
 TELEGRAM_TOKEN = "7610150119:AAGMzDYUdcI6QQuvt-Vsg8U4s1VSYarLIe0"
 TELEGRAM_CHAT_ID = 205721225
