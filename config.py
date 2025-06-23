@@ -36,37 +36,30 @@ def get_access_token():
     return _access_token
 
 def get_current_balance():
-    url = f"https://api.alor.ru/trade/v2/clients/{ACCOUNT_ID}/summary?exchange=FORTS"
+    url = f"https://api.alor.ru/md/v2/clients/{ACCOUNT_ID}/money?portfolio={ACCOUNT_ID}&exchange=FORTS"
     headers = {
         "Authorization": f"Bearer {get_access_token()}"
     }
 
-    send_telegram_log(f"📤 Запрос баланса ALOR:\n{url}")
+    send_telegram_log(f"📤 Запрос баланса FORTS:\n{url}")
 
     try:
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         data = response.json()
 
-        import json
-        send_telegram_log(f"📩 RAW ответ от ALOR:\n{json.dumps(data, indent=2, ensure_ascii=False)}")
+        # Показываем весь ответ
+        send_telegram_log(f"📩 Ответ от ALOR:\n{data}")
 
-        portfolio = data.get("portfolio", {})
-        money = data.get("moneySummary", {})
-
-        cash1 = portfolio.get("equity", 0)
-        cash2 = money.get("cash", 0)
-
-        send_telegram_log(f"💸 Доступно по equity: {cash1}₽\n💵 Доступно по moneySummary.cash: {cash2}₽")
-
-        return cash1 if cash1 else cash2
+        cash = data.get("cash", 0)
+        return cash
 
     except requests.exceptions.RequestException as e:
-        send_telegram_log(f"❌ Ошибка при запросе баланса: {e}")
+        send_telegram_log(f"❌ Ошибка при запросе баланса FORTS: {e}")
         return 0
 
     except Exception as e:
-        send_telegram_log(f"⚠️ Ошибка при обработке баланса: {e}")
+        send_telegram_log(f"⚠️ Общая ошибка при обработке баланса: {e}")
         return 0
 
 
