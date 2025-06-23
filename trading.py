@@ -1,7 +1,7 @@
 from datetime import datetime
 from config import (
     TICKER_MAP, START_QTY, MAX_QTY, ADD_QTY,
-    ACCOUNT_ID, get_access_token, get_current_balance  # добавлен импорт баланса
+    ACCOUNT_ID, get_access_token, get_current_balance
 )
 from telegram_logger import send_telegram_log
 from alor import place_order
@@ -22,7 +22,7 @@ def place_market_order(ticker, side, quantity):
     try:
         access_token = get_access_token()
         order = {
-            "side": side.upper(),  # BUY or SELL
+            "side": side.upper(),
             "qty": quantity,
             "instrument": ticker
         }
@@ -128,5 +128,6 @@ def get_position_snapshot():
     return snapshot if snapshot else "нет"
 
 
-# === Экспорт функции ===
-process_signal = handle_signal
+# ✅ Экспорт правильной async-функции для webhook
+async def handle_trading_signal(tv_ticker, signal):
+    return handle_signal(tv_ticker, signal)
