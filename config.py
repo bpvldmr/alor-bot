@@ -35,24 +35,34 @@ def get_access_token():
 
     return _access_token
 
-# === Получение текущего баланса с биржи FORTS ===
 def get_current_balance():
+    url = f"https://api.alor.ru/trade/v2/clients/{ACCOUNT_ID}/summary?exchange=FORTS"
+    headers = {
+        "Authorization": f"Bearer {get_access_token()}"
+    }
+
+    # Логируем сам запрос
+    send_telegram_log(f"📤 Запрос баланса ALOR:\n{url}")
+
     try:
-        token = get_access_token()
-        headers = {"Authorization": f"Bearer {token}"}
-        url = f"https://api.alor.ru/trade/v2/clients/{ACCOUNT_ID}/summary?exchange=FORTS"
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         data = response.json()
 
-        # Логируем весь ответ от ALOR (можно отключить позже)
-        send_telegram_log(f"📦 Ответ ALOR по балансу:\n{data}")
+        # Логируем весь ответ от ALOR
+        send_telegram_log(f"📩 Ответ ALOR:\n{data}")
 
-        equity = float(data.get("portfolio", {}).get("equity", 0))
-        return equity
-    except Exception as e:
-        send_telegram_log(f"❌ Ошибка получения баланса: {e}")
+        cash = data.get("moneySummary", {}).get("cash", 0)
+        return cash
+
+    except requests.exceptions.RequestException as e:
+        send_telegram_log(f"❌ Ошибка при запросе баланса: {e}")
         return 0
+
+    except Exception as e:
+        send_telegram_log(f"⚠️ Ошибка при обработке баланса: {e}")
+        return 0
+
 
 # === Карта тикеров ===
 TICKER_MAP = {
