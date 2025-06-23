@@ -2,12 +2,12 @@ import asyncio
 from fastapi import FastAPI
 from loguru import logger
 from webhook import router as webhook_router
-from balance import balance_router
+from balance import router as balance_router  # ✅ исправили: должно быть `router`, не `balance_router`
 from auth import get_access_token
 
 app = FastAPI()
 app.include_router(webhook_router)
-app.include_router(balance_router)   # <-- вот здесь
+app.include_router(balance_router)
 
 @app.on_event("startup")
 async def on_startup():
@@ -21,4 +21,4 @@ async def token_refresher():
             logger.debug("🔁 Token refreshed")
         except Exception as e:
             logger.error(f"❌ Refresh error: {e}")
-        await asyncio.sleep(3300)
+        await asyncio.sleep(3300)  # ≈55 минут
