@@ -1,10 +1,10 @@
 from datetime import datetime
-import requests
 from config import (
     TICKER_MAP, START_QTY, MAX_QTY, ADD_QTY,
     ACCOUNT_ID, get_access_token
 )
 from telegram_logger import send_telegram_log
+from alor import place_order
 
 current_positions = {
     "CRU5": 0,
@@ -12,9 +12,11 @@ current_positions = {
 }
 entry_prices = {}  # Цена входа по каждой позиции
 
+
 def is_weekend():
     today = datetime.utcnow().weekday()
     return today in [5, 6]
+
 
 def get_current_balance():
     try:
@@ -24,7 +26,6 @@ def get_current_balance():
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         data = response.json()
-
         return float(data.get("portfolio", {}).get("equity", 0))
     except Exception as e:
         print(f"Ошибка получения баланса: {e}")
@@ -34,27 +35,21 @@ def get_current_balance():
 def place_market_order(ticker, side, quantity):
     try:
         access_token = get_access_token()
-        headers = {"Authorization": f"Bearer {access_token}"}
-        url = "https://api.alor.ru/md/v2/SubmitOrder"
-        payload = {
-            "instrument": {
-                "symbol": ticker,
-                "exchange": "MOEX"
-            },
-            "side": side.upper(),  # BUY или SELL
-            "type": "Market",
-            "quantity": quantity,
-            "account": ACCOUNT_ID
+        order = {
+            "side": side.upper(),  # BUY or SELL
+            "qty": quantity,
+            "instrument": ticker
         }
-        response = requests.post(url, headers=headers, json=payload)
-        response.raise_for_status()
-        data = response.json()
-        fill_price = data.get("price") or 0
+        response = place_order(order, access_token)
+        if "error" in response:
+            raise Exception(response["error"])
+        fill_price = response.get("price") or 0
         print(f"✅ Исполнено: {side.upper()} {quantity} контрактов по {ticker} @ {fill_price}")
         return float(fill_price)
     except Exception as e:
         print(f"❌ Ошибка при исполнении заявки: {e}")
         return 0
+
 
 def close_position(ticker):
     qty = current_positions[ticker]
@@ -76,6 +71,7 @@ def close_position(ticker):
         f"📌 Открытых позиций нет"
     )
     send_telegram_log(log_message)
+
 
 def handle_signal(tv_ticker, signal):
     if is_weekend():
@@ -136,6 +132,7 @@ def handle_signal(tv_ticker, signal):
 
     return {"status": "ok"}
 
+
 def get_position_snapshot():
     snapshot = ""
     for ticker, qty in current_positions.items():
@@ -143,6 +140,7 @@ def get_position_snapshot():
             price = entry_prices.get(ticker, "?")
             snapshot += f"{ticker}: {qty:+} контрактов @ {price}\n"
     return snapshot if snapshot else "нет"
+
 
 # === Экспорт правильного имени для webhook ===
 process_signal = handle_signal
