@@ -1,41 +1,31 @@
 import os
-import requests
+import time
+import httpx
 from loguru import logger
+from config import CLIENT_ID, CLIENT_SECRET, REFRESH_TOKEN
 
-CLIENT_ID = os.getenv("CLIENT_ID")
-CLIENT_SECRET = os.getenv("CLIENT_SECRET")
-REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
-REDIRECT_URI = os.getenv("REDIRECT_URI")
+# Кэш токена
+_access_token = None
+_expiry = 0
 
-ACCESS_TOKEN = None
+async def get_access_token() -> str:
+    global _access_token, _expiry
+    # Если ещё валиден — возвращаем
+    if _access_token and time.time() < _expiry - 60:
+        return _access_token
 
-def get_access_token():
-    global ACCESS_TOKEN
+    # По инструкции OAuth2 Alor:
     url = "https://oauth.alor.ru/token"
-
-    logger.debug(f"REFRESH_TOKEN={REFRESH_TOKEN}")
-    logger.debug(f"CLIENT_ID={CLIENT_ID}")
-    logger.debug(f"CLIENT_SECRET={CLIENT_SECRET}")
-    logger.debug(f"REDIRECT_URI={REDIRECT_URI}")
-
     payload = {
-        "grant_type": "refresh_token",
+        "grant_type":    "refresh_token",
         "refresh_token": REFRESH_TOKEN,
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
-        "redirect_uri": REDIRECT_URI
+        "client_id":     CLIENT_ID,
+        "client_secret": CLIENT_SECRET
     }
-
-    try:
-        response = requests.post(url, data=payload)
-        if response.status_code == 200:
-            ACCESS_TOKEN = response.json().get("access_token")
-            logger.info("✅ Access token успешно обновлён.")
-        else:
-            logger.error(f"❌ Ошибка получения токена: {response.text}")
-            ACCESS_TOKEN = None
-    except Exception as e:
-        logger.exception(f"⚠️ Ошибка соединения: {e}")
-        ACCESS_TOKEN = None
-
-    return ACCESS_TOKEN
+    resp = httpx.post(url, data=payload, timeout=10)
+    resp.raise_for_status()
+    data = resp.json()
+    _access_token = data["access_token"]
+    _expiry = time.time() + data["expires_in"]
+    logger.debug("✅ Access token обновлён")
+    return _access_token
