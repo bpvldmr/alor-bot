@@ -1,22 +1,17 @@
 import asyncio
 from datetime import datetime
 from telegram_logger import send_telegram_log
-from config import TICKER_MAP, START_QTY, ADD_QTY, MAX_QTY
-from alor import place_order           # синхронная функция
-from balance import get_current_balance # синхронная функция
+from config import TICKER_MAP, START_QTY, ADD_QTY, MAX_QTY, get_current_balance
+from alor import place_order  # синхронная функция
 
 # Текущие позиции (контракты) и цены входа
 current_positions = {v["trade"]: 0 for v in TICKER_MAP.values()}
-entry_prices     = {}
+entry_prices = {}
 
 def is_weekend() -> bool:
     return datetime.utcnow().weekday() in (5, 6)
 
 async def execute_market_order(ticker: str, side: str, qty: int):
-    """
-    Оборачиваем синхронный place_order в to_thread, чтобы реально ждать исполнения.
-    """
-    # place_order возвращает dict c ключами error/order_id/price/status
     res = await asyncio.to_thread(place_order, {
         "side": side.upper(),
         "qty": qty,
@@ -39,14 +34,13 @@ async def close_position(ticker: str):
     side = "sell" if qty > 0 else "buy"
     fill_price = await execute_market_order(ticker, side, abs(qty))
     if fill_price is None:
-        return  # заявка не закрылась
+        return
 
     entry = entry_prices.get(ticker, 0)
-    pnl   = (fill_price - entry) * qty
-    pct   = pnl / (entry * abs(qty)) * 100 if entry else 0
+    pnl = (fill_price - entry) * qty
+    pct = pnl / (entry * abs(qty)) * 100 if entry else 0
     current_positions[ticker] = 0
 
-    # оборачиваем get_current_balance()
     bal = await asyncio.to_thread(get_current_balance)
     send_telegram_log(
         f"❌ Закрыта {ticker} {qty:+} контрактов @ {fill_price:.2f} ₽\n"
@@ -54,9 +48,6 @@ async def close_position(ticker: str):
     )
 
 async def handle_trading_signal(tv_tkr: str, sig: str):
-    """
-    Основная async-точка: tv_tkr="MOEX:CRU2025", sig="LONG"/"SHORT"
-    """
     if is_weekend():
         send_telegram_log(f"⛔ Weekend — пропускаем {sig} по {tv_tkr}")
         return {"error": "Weekend"}
@@ -65,11 +56,10 @@ async def handle_trading_signal(tv_tkr: str, sig: str):
         send_telegram_log(f"⚠️ Неизвестный тикер {tv_tkr}")
         return {"error": "Unknown ticker"}
 
-    tkr  = TICKER_MAP[tv_tkr]["trade"]
+    tkr = TICKER_MAP[tv_tkr]["trade"]
     dir_ = 1 if sig.upper() == "LONG" else -1
-    cur  = current_positions.get(tkr, 0)
+    cur = current_positions.get(tkr, 0)
 
-    # 1) Усреднение
     if cur * dir_ > 0:
         new = cur + ADD_QTY[tkr]
         if abs(new) > MAX_QTY[tkr]:
@@ -78,7 +68,6 @@ async def handle_trading_signal(tv_tkr: str, sig: str):
 
         price = await execute_market_order(tkr, sig.lower(), ADD_QTY[tkr])
         if price is not None:
-            # обновляем средневзвешенную цену
             entry_prices[tkr] = (
                 (entry_prices.get(tkr, 0) * abs(cur) + price * ADD_QTY[tkr])
                 / abs(new)
@@ -88,30 +77,27 @@ async def handle_trading_signal(tv_tkr: str, sig: str):
             send_telegram_log(f"➕ Усреднение {tkr}={new:+} @ {entry_prices[tkr]:.2f}, 💰 {bal:.2f} ₽")
         return {"status": "avg"}
 
-    # 2) Встречный сигнал: закрываем старую и открываем новую
     if cur * dir_ < 0:
         await close_position(tkr)
         sq = START_QTY[tkr]
         price = await execute_market_order(tkr, sig.lower(), sq)
         if price is not None:
             current_positions[tkr] = dir_ * sq
-            entry_prices[tkr]     = price
+            entry_prices[tkr] = price
             bal = await asyncio.to_thread(get_current_balance)
             send_telegram_log(f"🔄 Новая {tkr}={dir_*sq:+} @ {price:.2f}, 💰 {bal:.2f} ₽")
         return {"status": "flip"}
 
-    # 3) Нет позиции — просто открываем
     if cur == 0:
         sq = START_QTY[tkr]
         price = await execute_market_order(tkr, sig.lower(), sq)
         if price is not None:
             current_positions[tkr] = dir_ * sq
-            entry_prices[tkr]     = price
+            entry_prices[tkr] = price
             bal = await asyncio.to_thread(get_current_balance)
             send_telegram_log(f"✅ Открыта {tkr}={dir_*sq:+} @ {price:.2f}, 💰 {bal:.2f} ₽")
         return {"status": "open"}
 
     return {"status": "noop"}
 
-# Экспортируем именно async-функцию для webhook
 process_signal = handle_trading_signal
