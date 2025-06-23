@@ -11,33 +11,46 @@ CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
 ACCOUNT_ID    = os.getenv("ACCOUNT_ID")
 
+# ——————————————————————————————
+#  Актуальные базовые URL
+# ——————————————————————————————
+
+AUTH_URL = "https://oauth.alor.ru/token"  # ✅ Исправлено!
 BASE_URL = "https://api.alor.ru"
 
 # ——————————————————————————————
 #  Кеш access_token
 # ——————————————————————————————
 
-_token_cache      = None
+_token_cache = None
 _token_expires_at = 0
 
 def get_access_token() -> str:
     global _token_cache, _token_expires_at
+
     if time.time() < _token_expires_at - 60:
         return _token_cache
 
     resp = httpx.post(
-        f"{BASE_URL}/refresh",
+        AUTH_URL,  # ✅ Исправлено!
         data={
+            "grant_type":    "refresh_token",
             "refresh_token": REFRESH_TOKEN,
             "client_id":     CLIENT_ID,
             "client_secret": CLIENT_SECRET
         },
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded"
+        },
         timeout=10
     )
+
     resp.raise_for_status()
     js = resp.json()
-    _token_cache      = js["access_token"]
+
+    _token_cache = js["access_token"]
     _token_expires_at = time.time() + js.get("expires_in", 1800)
+
     return _token_cache
 
 # ——————————————————————————————
@@ -47,11 +60,13 @@ def get_access_token() -> str:
 
 def get_current_balance() -> float:
     token = get_access_token()
-    url   = f"{BASE_URL}/md/v2/Clients/legacy/MOEX/{ACCOUNT_ID}/money?format=Simple"
+    url = f"{BASE_URL}/md/v2/Clients/legacy/MOEX/{ACCOUNT_ID}/money?format=Simple"
     headers = {"Authorization": f"Bearer {token}"}
-    resp  = httpx.get(url, headers=headers, timeout=10)
+
+    resp = httpx.get(url, headers=headers, timeout=10)
     resp.raise_for_status()
     data = resp.json()
+
     return float(data.get("free", data.get("cash", 0.0)))
 
 # ——————————————————————————————
@@ -61,8 +76,9 @@ def get_current_balance() -> float:
 
 def get_portfolio_summary(exchange: str = "MOEX") -> dict:
     token = get_access_token()
-    url   = f"{BASE_URL}/md/v2/Clients/{exchange}/{ACCOUNT_ID}/summary"
+    url = f"{BASE_URL}/md/v2/Clients/{exchange}/{ACCOUNT_ID}/summary"
     headers = {"Authorization": f"Bearer {token}"}
+
     resp = httpx.get(url, headers=headers, timeout=10)
     resp.raise_for_status()
     return resp.json()
@@ -72,8 +88,8 @@ def get_portfolio_summary(exchange: str = "MOEX") -> dict:
 # ——————————————————————————————
 
 TICKER_MAP = {
-    "MOEX:CRU2025": {"trade": "CRU5"},  # фьючерс на CNY/RUB
-    "MOEX:NGN2025": {"trade": "NGN5"},  # фьючерс на газ
+    "MOEX:CRU2025": {"trade": "CRU5"},
+    "MOEX:NGN2025": {"trade": "NGN5"},
 }
 
 START_QTY = {
