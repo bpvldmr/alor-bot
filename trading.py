@@ -22,11 +22,15 @@ def get_current_balance():
     try:
         access_token = get_access_token()
         headers = {"Authorization": f"Bearer {access_token}"}
-        url = f"https://api.alor.ru/trade/v2/clients/{ACCOUNT_ID}/summary?exchange=FORTS"
+        url = f"https://api.alor.ru/commandapi/warptrans/TRADE/v2/client/{ACCOUNT_ID}/portfolio"
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         data = response.json()
-        return float(data.get("portfolio", {}).get("equity", 0))
+
+        # Вытащим доступную сумму или equity:
+        cash = data.get("cash", 0) or data.get("equity", 0)
+
+        return float(cash)
     except Exception as e:
         print(f"Ошибка получения баланса: {e}")
         return 0
