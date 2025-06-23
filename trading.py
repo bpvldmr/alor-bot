@@ -1,133 +1,139 @@
+
+
 from datetime import datetime
 from config import (
     TICKER_MAP, START_QTY, MAX_QTY, ADD_QTY,
-    ACCOUNT_ID, get_access_token, get_current_balance
+    get_access_token, get_current_balance
 )
 from telegram_logger import send_telegram_log
 from alor import place_order
 
-current_positions = {
-    "CRU5": 0,
-    "NGN5": 0
-}
-entry_prices = {}  # Цена входа по каждой позиции
-
+# Текущие позиции и цены входа
+current_positions = {info["trade"]: 0 for info in TICKER_MAP.values()}
+entry_prices = {}
 
 def is_weekend():
-    today = datetime.utcnow().weekday()
-    return today in [5, 6]
+    # 5 = суббота, 6 = воскресенье
+    return datetime.utcnow().weekday() in (5, 6)
 
+def execute_market_order(ticker: str, side: str, qty: int):
+    """
+    Отправляем рыночную заявку и ждём её исполнения.
+    Возвращает цену исполнения (float) или None при ошибке/отклонении.
+    """
+    token = get_access_token()
+    order = {"side": side.upper(), "qty": qty, "instrument": ticker}
+    resp = place_order(order, token)
 
-def place_market_order(ticker, side, quantity):
-    try:
-        access_token = get_access_token()
-        order = {
-            "side": side.upper(),
-            "qty": quantity,
-            "instrument": ticker
-        }
-        response = place_order(order, access_token)
-        if "error" in response:
-            raise Exception(response["error"])
-        fill_price = response.get("price") or 0
-        print(f"✅ Исполнено: {side.upper()} {quantity} контрактов по {ticker} @ {fill_price}")
-        return float(fill_price)
-    except Exception as e:
-        print(f"❌ Ошибка при исполнении заявки: {e}")
-        return 0
+    # Ошибка на уровне API
+    if "error" in resp:
+        send_telegram_log(f"❌ Заявка {side.upper()} {qty} {ticker} не отправлена: {resp['error']}")
+        return None
 
+    status = resp.get("status")
+    price = resp.get("price", 0)
+    order_id = resp.get("order_id", "—")
 
-def close_position(ticker):
-    qty = current_positions[ticker]
+    if status == "filled":
+        send_telegram_log(
+            f"✅ Заявка исполнена: {side.upper()} {qty} {ticker} @ {price:.2f} ₽\n"
+            f"🆔 Order ID: {order_id}"
+        )
+        return price
+
+    # Если отклонена или отменена
+    send_telegram_log(f"❌ Заявка {side.upper()} {qty} {ticker} {status.upper()}")
+    return None
+
+def close_position(ticker: str):
+    qty = current_positions.get(ticker, 0)
     if qty == 0:
         return
 
     side = "sell" if qty > 0 else "buy"
-    close_price = place_market_order(ticker, side, abs(qty))
-    entry_price = entry_prices.get(ticker, 0)
-    pnl = (close_price - entry_price) * qty
-    pnl_percent = (pnl / (entry_price * abs(qty))) * 100 if entry_price else 0
+    fill_price = execute_market_order(ticker, side, abs(qty))
+    if fill_price is None:
+        return  # не закрыли — выходим
 
+    entry = entry_prices.get(ticker, 0)
+    pnl = (fill_price - entry) * qty
+    pnl_pct = (pnl / (entry * abs(qty)) * 100) if entry else 0.0
     current_positions[ticker] = 0
+
     balance = get_current_balance()
-    log_message = (
-        f"❌ Закрыта позиция по {ticker}\n"
-        f"📊 Результат: {pnl:+.2f}₽ ({pnl_percent:+.2f}%)\n"
-        f"💰 Баланс: {balance:.2f}₽\n"
+    send_telegram_log(
+        f"❌ Закрыта позиция {ticker}: {qty:+} контрактов @ {fill_price:.2f} ₽\n"
+        f"📊 PnL: {pnl:+.2f} ₽ ({pnl_pct:+.2f} %)\n"
+        f"💰 Баланс: {balance:.2f} ₽\n"
         f"📌 Открытых позиций нет"
     )
-    send_telegram_log(log_message)
 
-
-def handle_signal(tv_ticker, signal):
+async def handle_trading_signal(tv_ticker: str, signal: str):
+    """
+    Основная точка входа для webhook’а.
+    signal — "LONG" или "SHORT"
+    """
     if is_weekend():
-        msg = f"⛔ Сигнал {signal} по {tv_ticker} отклонён — выходной день."
-        print(msg)
-        send_telegram_log(msg)
-        return {"error": "Выходной день. Торговля запрещена."}
+        send_telegram_log(f"⛔ Торговля запрещена — выходной, сигнал {signal} по {tv_ticker}")
+        return {"error": "Weekend"}
 
     if tv_ticker not in TICKER_MAP:
-        print("⚠️ Неизвестный тикер")
-        return {"error": "Неизвестный тикер"}
+        send_telegram_log(f"⚠️ Неизвестный тикер из TV: {tv_ticker}")
+        return {"error": "Unknown ticker"}
 
     ticker = TICKER_MAP[tv_ticker]["trade"]
     direction = 1 if signal == "LONG" else -1
-    current_qty = current_positions[ticker]
+    current_qty = current_positions.get(ticker, 0)
 
+    # 1) Усреднение (тот же знак)
     if current_qty * direction > 0:
         new_qty = current_qty + ADD_QTY[ticker]
         if abs(new_qty) > MAX_QTY[ticker]:
-            print(f"🚫 Превышен лимит по {ticker}. Пропуск.")
-            return {"error": "Превышен лимит позиции"}
-        price = place_market_order(ticker, signal.lower(), ADD_QTY[ticker])
-        current_positions[ticker] = new_qty
-        log_message = (
-            f"➕ Усреднение по {ticker}: теперь {new_qty} контрактов\n"
-            f"🔄 Действие: {signal}\n"
-            f"💰 Баланс: {get_current_balance():.2f}₽\n"
-            f"📌 Позиции: {get_position_snapshot()}"
-        )
-        send_telegram_log(log_message)
+            send_telegram_log(f"🚫 Лимит позиции {ticker} = {MAX_QTY[ticker]}, усреднение пропущено")
+            return {"error": "Limit exceeded"}
 
+        price = execute_market_order(ticker, signal.lower(), ADD_QTY[ticker])
+        if price is not None:
+            current_positions[ticker] = new_qty
+            entry_prices[ticker] = (
+                (entry_prices.get(ticker, 0) * abs(current_qty) + price * ADD_QTY[ticker])
+                / abs(new_qty)
+            )
+            balance = get_current_balance()
+            send_telegram_log(
+                f"➕ Усреднение {ticker}: теперь {new_qty:+} контрактов @ {entry_prices[ticker]:.2f} ₽\n"
+                f"💰 Баланс: {balance:.2f} ₽"
+            )
+
+    # 2) Встречный сигнал (закрываем старую, открываем новую)
     elif current_qty * direction < 0:
         close_position(ticker)
-        start_qty = START_QTY[ticker]
-        price = place_market_order(ticker, signal.lower(), start_qty)
-        current_positions[ticker] = direction * start_qty
-        entry_prices[ticker] = price
-        log_message = (
-            f"🔄 Обратный сигнал по {ticker}: новая позиция {start_qty} контрактов\n"
-            f"🔄 Действие: {signal}\n"
-            f"💰 Баланс: {get_current_balance():.2f}₽\n"
-            f"📌 Позиции: {get_position_snapshot()}"
-        )
-        send_telegram_log(log_message)
 
+        start_qty = START_QTY[ticker]
+        price = execute_market_order(ticker, signal.lower(), start_qty)
+        if price is not None:
+            current_positions[ticker] = direction * start_qty
+            entry_prices[ticker] = price
+            balance = get_current_balance()
+            send_telegram_log(
+                f"✅ Открыта новая позиция {ticker}: {direction * start_qty:+} @ {price:.2f} ₽\n"
+                f"💰 Баланс: {balance:.2f} ₽"
+            )
+
+    # 3) Нет позиции — просто открываем
     elif current_qty == 0:
         start_qty = START_QTY[ticker]
-        price = place_market_order(ticker, signal.lower(), start_qty)
-        current_positions[ticker] = direction * start_qty
-        entry_prices[ticker] = price
-        log_message = (
-            f"✅ Открыта позиция по {ticker}: {start_qty} контрактов\n"
-            f"🔄 Действие: {signal}\n"
-            f"💰 Баланс: {get_current_balance():.2f}₽\n"
-            f"📌 Позиции: {get_position_snapshot()}"
-        )
-        send_telegram_log(log_message)
+        price = execute_market_order(ticker, signal.lower(), start_qty)
+        if price is not None:
+            current_positions[ticker] = direction * start_qty
+            entry_prices[ticker] = price
+            balance = get_current_balance()
+            send_telegram_log(
+                f"✅ Открыта позиция {ticker}: {direction * start_qty:+} @ {price:.2f} ₽\n"
+                f"💰 Баланс: {balance:.2f} ₽"
+            )
 
-    return {"status": "ok"}
+    return {"status": "done"}
 
-
-def get_position_snapshot():
-    snapshot = ""
-    for ticker, qty in current_positions.items():
-        if qty != 0:
-            price = entry_prices.get(ticker, "?")
-            snapshot += f"{ticker}: {qty:+} контрактов @ {price}\n"
-    return snapshot if snapshot else "нет"
-
-
-# ✅ Экспорт правильной async-функции для webhook
-async def handle_trading_signal(tv_ticker, signal):
-    return handle_signal(tv_ticker, signal)
+# Экспорт для webhook
+process_signal = handle_trading_signal
