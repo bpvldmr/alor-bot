@@ -22,18 +22,20 @@ def get_current_balance():
     try:
         access_token = get_access_token()
         headers = {"Authorization": f"Bearer {access_token}"}
-        url = f"https://api.alor.ru/commandapi/warptrans/TRADE/v2/client/{ACCOUNT_ID}/portfolios"
+        url = f"https://api.alor.ru/trade/v2/clients/{ACCOUNT_ID}/summary?exchange=FORTS"
 
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         data = response.json()
 
-        # Проверяем наличие equity в portfolio
-        return float(data.get("portfolio", {}).get("equity", 0))
+        # Логирование всей структуры ответа
+        send_telegram_log(f"📦 Ответ ALOR по балансу:\n{data}")
 
+        return float(data.get("portfolio", {}).get("equity", 0))
     except Exception as e:
-        print(f"Ошибка получения баланса: {e}")
+        send_telegram_log(f"❌ Ошибка получения баланса: {e}")
         return 0
+
 
 
 def place_market_order(ticker, side, quantity):
