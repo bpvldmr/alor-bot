@@ -1,44 +1,30 @@
-# webhook.py
-
-import json
 from fastapi import APIRouter, Request
+import json
 from telegram_logger import send_telegram_log
-from trading import handle_signal   # синхронная функция
+from trading import handle_trading_signal
 
-webhook_router = APIRouter()
-SECRET_TOKEN = "sEcr09!@"
+router = APIRouter()
+SECRET = "sEcr09!@"
 
-@webhook_router.post("/webhook/9f3c7e23da9f49bd84f243acbc2af21a")
-async def webhook(request: Request):
-    # 1. Читаем сырой body
-    raw = await request.body()
-    text = raw.decode("utf-8")
+@router.post("/webhook/{token}")
+async def webhook(token:str, request: Request):
+    # Маршрут: /webhook/sEcr09!@ 
+    if token != SECRET:
+        return {"status":"unauthorized"}
 
-    # 2. Парсим JSON вручную
+    raw = (await request.body()).decode()
     try:
-        data = json.loads(text)
+        data = json.loads(raw)
     except json.JSONDecodeError as e:
-        send_telegram_log(f"❌ Ошибка парсинга JSON: {e}\n{text}")
-        return {"status": "invalid json"}
+        send_telegram_log(f"❌ JSON decode error: {e}\n{raw}")
+        return {"status":"invalid json"}
 
-    # 3. Логируем полный payload
-    send_telegram_log(f"📩 Получен сигнал от TradingView:\n```json\n{text}\n```")
+    send_telegram_log(f"📩 TV → Bot:\n```json\n{raw}\n```")
+    sig = data.get("action")
+    tkr = data.get("signal_ticker")
+    if not sig or not tkr:
+        return {"status":"invalid payload"}
 
-    # 4. Проверяем токен
-    if data.get("token") != SECRET_TOKEN:
-        send_telegram_log("❌ Неверный токен в сигнале TradingView")
-        return {"status": "unauthorized"}
-
-    # 5. Берём обязательные поля
-    signal_ticker = data.get("signal_ticker")
-    action = data.get("action")
-    if not signal_ticker or not action:
-        send_telegram_log("⚠️ Ошибка: signal_ticker или action отсутствует")
-        return {"status": "invalid payload"}
-
-    # 6. Вызываем обработчик сигналов (синхронную функцию!)
-    result = handle_signal(signal_ticker, action.upper())  # LONG или SHORT
-
-    # 7. Логируем и возвращаем результат
-    send_telegram_log(f"✅ Обработан сигнал: {signal_ticker} → {action.upper()}\nРезультат: {result}")
-    return {"status": "ok", "result": result}
+    res = await handle_trading_signal(tkr, sig.upper())
+    send_telegram_log(f"🔔 Result: {res}")
+    return {"status":"ok", "result":res}
