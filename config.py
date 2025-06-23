@@ -1,88 +1,19 @@
 import os
-import time
-import requests
-from telegram_logger import send_telegram_log  # Логирование в Telegram
 
-# === ALOR из Render переменных окружения ===
+# === Переменные окружения ===
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
-ACCOUNT_ID = os.getenv("ACCOUNT_ID")
+ACCOUNT_ID = os.getenv("ACCOUNT_ID")  # Это портфель (например, "D39004")
 
-# === Внутренние переменные токена ===
-_access_token = None
-_access_token_expires = 0
+# Для баланс-роутера
+BASE_URL = "https://api.alor.ru"
 
-def get_access_token():
-    global _access_token, _access_token_expires
-    if time.time() < _access_token_expires - 60:
-        return _access_token
-
-    url = "https://oauth.alor.ru/token"
-    response = requests.post(url, data={
-        "grant_type": "refresh_token",
-        "refresh_token": REFRESH_TOKEN,
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET
-    })
-    response.raise_for_status()
-    data = response.json()
-    _access_token = data["access_token"]
-    _access_token_expires = time.time() + data["expires_in"]
-
-    timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
-    send_telegram_log(f"🔁 access_token обновлён в {timestamp}")
-
-    return _access_token
-
-def get_current_balance():
-    url = f"https://api.alor.ru/md/v2/clients/{ACCOUNT_ID}/money?portfolio={ACCOUNT_ID}&exchange=FORTS"
-    headers = {
-        "Authorization": f"Bearer {get_access_token()}"
-    }
-
-    send_telegram_log(f"📤 Запрос баланса FORTS:\n{url}")
-
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        data = response.json()
-
-        # Показываем весь ответ
-        send_telegram_log(f"📩 Ответ от ALOR:\n{data}")
-
-        cash = data.get("cash", 0)
-        return cash
-
-    except requests.exceptions.RequestException as e:
-        send_telegram_log(f"❌ Ошибка при запросе баланса FORTS: {e}")
-        return 0
-
-    except Exception as e:
-        send_telegram_log(f"⚠️ Общая ошибка при обработке баланса: {e}")
-        return 0
-
-
-# === Карта тикеров ===
+# Карта тикеров и параметры стратегии
 TICKER_MAP = {
     "MOEX:CRU2025": {"trade": "CRU5"},
-    "MOEX:NGN2025": {"trade": "NGN5"}
+    "MOEX:NGN2025": {"trade": "NGN5"},
 }
-
-# === Параметры стратегии ===
-START_QTY = {
-    "CRU5": 4,
-    "NGN5": 1
-}
-MAX_QTY = {
-    "CRU5": 8,
-    "NGN5": 2
-}
-ADD_QTY = {
-    "CRU5": 2,
-    "NGN5": 1
-}
-
-# === Telegram логирование ===
-TELEGRAM_TOKEN = "7610150119:AAGMzDYUdcI6QQuvt-Vsg8U4s1VSYarLIe0"
-TELEGRAM_CHAT_ID = 205721225
+START_QTY = {"CRU5": 4, "NGN5": 1}
+MAX_QTY   = {"CRU5": 8, "NGN5": 2}
+ADD_QTY   = {"CRU5": 2, "NGN5": 1}
