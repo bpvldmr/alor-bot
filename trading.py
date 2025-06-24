@@ -1,10 +1,10 @@
 import asyncio
 from datetime import datetime
 from telegram_logger import send_telegram_log
-from config import TICKER_MAP, START_QTY, ADD_QTY, MAX_QTY, get_current_balance
+from config import TICKER_MAP, START_QTY, ADD_QTY, MAX_QTY
+from auth import get_current_balance  # ✅ исправлен импорт
 from alor import place_order  # синхронная функция
 
-# Текущие позиции (контракты) и цены входа
 current_positions = {v["trade"]: 0 for v in TICKER_MAP.values()}
 entry_prices = {}
 
