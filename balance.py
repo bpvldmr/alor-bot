@@ -11,7 +11,7 @@ async def get_balance():
     Возвращает текущий баланс в рублях по FORTS-счёту.
     Эндпоинт: https://api.alor.ru/md/v2/Clients/legacy/MOEX/{ACCOUNT_ID}/money
     """
-    token = await get_access_token()  # ✅ асинхронный вызов
+    token = get_access_token()
     url = f"{BASE_URL}/md/v2/Clients/legacy/MOEX/{ACCOUNT_ID}/money?format=Simple"
     headers = {"Authorization": f"Bearer {token}"}
 
