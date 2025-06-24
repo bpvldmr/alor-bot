@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from auth import get_access_token
 import os
-import requests
 import httpx
+import requests
 
 router = APIRouter()
 
@@ -12,10 +12,10 @@ ACCOUNT_ID = os.getenv("ACCOUNT_ID")
 @router.get("/balance")
 async def get_balance():
     """
-    Возвращает только баланс в RUB по счёту.
+    Возвращает доступный к выводу баланс по счёту ALOR.
     """
     token = get_access_token()
-    url = f"{BASE_URL}/md/v2/Clients/legacy/MOEX/{ACCOUNT_ID}/money?format=Simple"
+    url = f"{BASE_URL}/md/v2/Clients/MOEX/{ACCOUNT_ID}/summary"
     headers = {"Authorization": f"Bearer {token}"}
 
     try:
@@ -26,21 +26,17 @@ async def get_balance():
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Ошибка запроса: {str(e)}")
 
-    # Ищем только RUB/RUR
-    for entry in data.get("money", []):
-        if entry.get("currency") in ("RUB", "RUR"):
-            return {"balance": float(entry.get("value", 0.0))}
-
-    return {"balance": 0.0}
+    balance = data.get("cashAvailableForWithdraw", 0.0)
+    return {"balance": balance}
 
 
 @router.get("/debug_balance")
 def debug_balance():
     """
-    Возвращает весь JSON-ответ Alor (для отладки).
+    Возвращает полный JSON-ответ от Alor (для отладки).
     """
     token = get_access_token()
-    url = f"{BASE_URL}/md/v2/Clients/legacy/MOEX/{ACCOUNT_ID}/money?format=Simple"
+    url = f"{BASE_URL}/md/v2/Clients/MOEX/{ACCOUNT_ID}/summary"
     headers = {"Authorization": f"Bearer {token}"}
 
     try:
