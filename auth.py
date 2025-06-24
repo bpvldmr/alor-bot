@@ -9,6 +9,7 @@ REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
 ACCOUNT_ID    = os.getenv("ACCOUNT_ID")
 
 BASE_URL = "https://api.alor.ru"
+AUTH_URL = "https://oauth.alor.ru"
 
 # Кеш токена
 _token_cache      = None
@@ -20,7 +21,7 @@ def get_access_token() -> str:
         return _token_cache
 
     resp = httpx.post(
-        f"{BASE_URL}/token",
+        f"{AUTH_URL}/refresh",
         data={
             "grant_type":    "refresh_token",
             "refresh_token": REFRESH_TOKEN,
@@ -36,7 +37,6 @@ def get_access_token() -> str:
     logger.debug("🔑 Access token refreshed")
     return _token_cache
 
-# ✅ Добавляем сюда эту функцию
 def get_current_balance() -> float:
     token = get_access_token()
     url   = f"{BASE_URL}/md/v2/Clients/legacy/MOEX/{ACCOUNT_ID}/money?format=Simple"
@@ -45,10 +45,8 @@ def get_current_balance() -> float:
     resp.raise_for_status()
     data = resp.json()
 
-    # Ищем валюту RUB в списке money
     for entry in data.get("money", []):
         if entry.get("currency") in ("RUB", "RUR"):
             return float(entry.get("value", 0.0))
     
-    # Fallback
     return float(data.get("free", data.get("cash", 0.0)))
