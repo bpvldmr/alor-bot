@@ -3,41 +3,52 @@ import time
 import httpx
 from loguru import logger
 
-# ———————————————————————
-# Переменные окружения
-# ———————————————————————
 CLIENT_ID     = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
+ACCOUNT_ID    = os.getenv("ACCOUNT_ID")
 
 BASE_URL = "https://api.alor.ru"
 
-# ———————————————————————
 # Кеш токена
-# ———————————————————————
-_access_token = None
+_token_cache      = None
 _token_expires_at = 0
 
-async def get_access_token() -> str:
-    global _access_token, _token_expires_at
+def get_access_token() -> str:
+    global _token_cache, _token_expires_at
+    if time.time() < _token_expires_at - 60:
+        return _token_cache
 
-    if _access_token and time.time() < _token_expires_at - 60:
-        return _access_token
+    resp = httpx.post(
+        f"{BASE_URL}/token",
+        data={
+            "grant_type":    "refresh_token",
+            "refresh_token": REFRESH_TOKEN,
+            "client_id":     CLIENT_ID,
+            "client_secret": CLIENT_SECRET
+        },
+        timeout=10
+    )
+    resp.raise_for_status()
+    js = resp.json()
+    _token_cache      = js["access_token"]
+    _token_expires_at = time.time() + js.get("expires_in", 1800)
+    logger.debug("🔑 Access token refreshed")
+    return _token_cache
 
-    url = f"{BASE_URL}/oauth/token"
-    payload = {
-        "grant_type": "refresh_token",
-        "refresh_token": REFRESH_TOKEN,
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET
-    }
-
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.post(url, data=payload)
-        resp.raise_for_status()
-
+# ✅ Добавляем сюда эту функцию
+def get_current_balance() -> float:
+    token = get_access_token()
+    url   = f"{BASE_URL}/md/v2/Clients/legacy/MOEX/{ACCOUNT_ID}/money?format=Simple"
+    headers = {"Authorization": f"Bearer {token}"}
+    resp = httpx.get(url, headers=headers, timeout=10)
+    resp.raise_for_status()
     data = resp.json()
-    _access_token = data["access_token"]
-    _token_expires_at = time.time() + data.get("expires_in", 1800)
-    logger.debug("✅ Access token обновлён")
-    return _access_token
+
+    # Ищем валюту RUB в списке money
+    for entry in data.get("money", []):
+        if entry.get("currency") in ("RUB", "RUR"):
+            return float(entry.get("value", 0.0))
+    
+    # Fallback
+    return float(data.get("free", data.get("cash", 0.0)))
