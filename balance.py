@@ -7,7 +7,7 @@ from loguru import logger
 
 router = APIRouter()
 
-BASE_URL = "https://apidev.alor.ru"  # ✅ используем верный API host
+BASE_URL = "https://api.alor.ru"  # ✅ используем верный API host
 ACCOUNT_ID = os.getenv("ACCOUNT_ID") or "7502QAB"  # на случай, если переменная не установлена
 EXCHANGE = "MOEX"
 
