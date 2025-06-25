@@ -1,24 +1,29 @@
 from fastapi import APIRouter, HTTPException
 from auth import get_access_token
-import os
 import httpx
 import requests
 from loguru import logger
 
 router = APIRouter()
 
-BASE_URL = "https://api.alor.ru"  # ✅ используем верный API host
-ACCOUNT_ID = os.getenv("ACCOUNT_ID") or "7502QAB"  # на случай, если переменная не установлена
+BASE_URL = "https://api.alor.ru"
+ACCOUNT_ID = "7502QAB"
 EXCHANGE = "MOEX"
 
 @router.get("/balance")
 async def get_balance():
     """
-    Возвращает доступный к выводу баланс по счёту ALOR.
+    Возвращает доступный к выводу баланс по счёту ALOR (через legacy endpoint).
     """
-    token = get_access_token()
-    url = f"{BASE_URL}/md/v2/Clients/{EXCHANGE}/{ACCOUNT_ID}/summary"
-    headers = {"Authorization": f"Bearer {token}"}
+    token = await get_access_token()  # ✅ await обязателен
+    url = f"{BASE_URL}/md/v2/Clients/legacy/{EXCHANGE}/{ACCOUNT_ID}/summary"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json"
+    }
+
+    logger.debug(f"📡 URL: {url}")
+    logger.debug(f"🔐 Token: {token[:20]}...")
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
@@ -40,11 +45,17 @@ async def get_balance():
 @router.get("/debug_balance")
 def debug_balance():
     """
-    Возвращает полный JSON-ответ от Alor (для отладки).
+    Возвращает полный JSON-ответ от Alor (через legacy endpoint).
     """
     token = get_access_token()
-    url = f"{BASE_URL}/md/v2/Clients/{EXCHANGE}/{ACCOUNT_ID}/summary"
-    headers = {"Authorization": f"Bearer {token}"}
+    url = f"{BASE_URL}/md/v2/Clients/legacy/{EXCHANGE}/{ACCOUNT_ID}/summary"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json"
+    }
+
+    logger.debug(f"🐞 Debug URL: {url}")
+    logger.debug(f"🔐 Token: {token[:20]}...")
 
     try:
         resp = requests.get(url, headers=headers, timeout=10)
