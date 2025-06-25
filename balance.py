@@ -16,7 +16,7 @@ async def get_balance():
     Возвращает доступный к выводу баланс по счёту ALOR (через legacy endpoint).
     """
     token = await get_access_token()  # ✅ await обязателен
-    url = f"{BASE_URL}/md/v2/Clients/legacy/{EXCHANGE}/{ACCOUNT_ID}/summary"
+    url = f"{BASE_URL}/md/v2/Clients/{EXCHANGE}/{ACCOUNT_ID}/summary"
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json"
