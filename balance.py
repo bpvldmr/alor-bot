@@ -14,7 +14,7 @@ async def get_balance():
     Возвращает доступный к выводу баланс по счёту ALOR (через актуальный endpoint /summary).
     """
     token = await get_access_token()
-    url = f"{BASE_URL}/md/v2/Clients/{ACCOUNT_ID}/summary"
+    url = f"{BASE_URL}/md/v2/Clients/MOEX/{ACCOUNT_ID}/summary"
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json"
