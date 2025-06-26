@@ -2,11 +2,18 @@ import asyncio
 from datetime import datetime
 from telegram_logger import send_telegram_log
 from config import TICKER_MAP, START_QTY, ADD_QTY, MAX_QTY
-from auth import get_current_balance  # ✅ исправлен импорт
-from alor import place_order  # синхронная функция
+from auth import get_current_balance  # ✅
+from alor import place_order
 
 current_positions = {v["trade"]: 0 for v in TICKER_MAP.values()}
 entry_prices = {}
+
+# 🔢 Переменные для расчёта
+initial_balance = None
+last_balance = None
+total_profit = 0
+total_deposit = 0
+total_withdrawal = 0
 
 def is_weekend() -> bool:
     return datetime.utcnow().weekday() in (5, 6)
@@ -27,6 +34,8 @@ async def execute_market_order(ticker: str, side: str, qty: int):
     return price
 
 async def close_position(ticker: str):
+    global total_profit, initial_balance, last_balance, total_deposit, total_withdrawal
+
     qty = current_positions.get(ticker, 0)
     if qty == 0:
         return
@@ -40,11 +49,37 @@ async def close_position(ticker: str):
     pnl = (fill_price - entry) * qty
     pct = pnl / (entry * abs(qty)) * 100 if entry else 0
     current_positions[ticker] = 0
+    total_profit += pnl
 
-    bal = await asyncio.to_thread(get_current_balance)
+    current_balance = await asyncio.to_thread(get_current_balance)
+
+    if initial_balance is None:
+        initial_balance = current_balance
+        last_balance = current_balance
+
+    # 📈 Автоматический учёт ввода/вывода
+    theoretical_balance = last_balance + pnl
+    diff = round(current_balance - theoretical_balance, 2)
+
+    if diff > 10:
+        total_deposit += diff
+        note = f"🟢 Ввод средств: +{diff:.2f} ₽"
+    elif diff < -10:
+        total_withdrawal += abs(diff)
+        note = f"🔴 Вывод средств: -{abs(diff):.2f} ₽"
+    else:
+        note = "—"
+
+    last_balance = current_balance
+    net_investment = initial_balance + total_deposit - total_withdrawal
+    roi = (total_profit / net_investment * 100) if net_investment else 0
+
     send_telegram_log(
-        f"❌ Закрыта {ticker} {qty:+} контрактов @ {fill_price:.2f} ₽\n"
-        f"📊 PnL {pnl:+.2f} ₽ ({pct:+.2f}%)  💰 Баланс {bal:.2f} ₽"
+        f"❌ Закрыта {ticker} {qty:+} @ {fill_price:.2f} ₽\n"
+        f"📊 PnL {pnl:+.2f} ₽ ({pct:+.2f}%)\n"
+        f"💰 Баланс: {current_balance:.2f} ₽  | {note}\n"
+        f"📈 Общая прибыль: {total_profit:+.2f} ₽\n"
+        f"💼 Доходность на капитал: {roi:+.2f}%"
     )
 
 async def handle_trading_signal(tv_tkr: str, sig: str):
