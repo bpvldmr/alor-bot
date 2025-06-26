@@ -9,25 +9,25 @@ from alor import place_order
 current_positions = {v["trade"]: 0 for v in TICKER_MAP.values()}
 entry_prices = {}
 
-# 🔢 Финансовые переменные
+# Финансовые переменные
 initial_balance = None
 last_balance = None
 total_profit = 0
 total_deposit = 0
 total_withdrawal = 0
 
-# 🟢/⛔ Флаг активности торговли
+# Флаг активности торговли
 trading_enabled = True
 
-def enable_trading():
+async def enable_trading():
     global trading_enabled
     trading_enabled = True
-    send_telegram_log("✅ Торговля включена")
+    await send_telegram_log("✅ Торговля включена")
 
-def disable_trading():
+async def disable_trading():
     global trading_enabled
     trading_enabled = False
-    send_telegram_log("⛔ Торговля отключена")
+    await send_telegram_log("⛔ Торговля отключена")
 
 def is_weekend() -> bool:
     return datetime.utcnow().weekday() in (5, 6)
@@ -44,12 +44,12 @@ async def execute_market_order(ticker: str, side: str, qty: int):
         "instrument": ticker
     })
     if "error" in res:
-        send_telegram_log(f"❌ {side}/{ticker}/{qty}: {res['error']}")
+        await send_telegram_log(f"❌ {side}/{ticker}/{qty}: {res['error']}")
         return None
 
     price = float(res.get("price", 0))
     order_id = res.get("order_id", "—")
-    send_telegram_log(f"✅ {side}/{ticker}/{qty} исполнена @ {price:.2f} ₽ (ID {order_id})")
+    await send_telegram_log(f"✅ {side}/{ticker}/{qty} исполнена @ {price:.2f} ₽ (ID {order_id})")
     return price
 
 async def close_position(ticker: str):
@@ -92,7 +92,7 @@ async def close_position(ticker: str):
     net_investment = initial_balance + total_deposit - total_withdrawal
     roi = (total_profit / net_investment * 100) if net_investment else 0
 
-    send_telegram_log(
+    await send_telegram_log(
         f"❌ Закрыта {ticker} {qty:+} @ {fill_price:.2f} ₽\n"
         f"📊 PnL {pnl:+.2f} ₽ ({pct:+.2f}%)\n"
         f"💰 Баланс: {current_balance:.2f} ₽  | {note}\n"
@@ -102,19 +102,19 @@ async def close_position(ticker: str):
 
 async def handle_trading_signal(tv_tkr: str, sig: str):
     if is_weekend():
-        send_telegram_log(f"⛔ Weekend — пропускаем {sig} по {tv_tkr}")
+        await send_telegram_log(f"⛔ Weekend — пропускаем {sig} по {tv_tkr}")
         return {"error": "Weekend"}
 
     if not is_trading_hours():
-        send_telegram_log(f"⏰ Вне торговых часов — пропускаем {sig} по {tv_tkr}")
+        await send_telegram_log(f"⏰ Вне торговых часов — пропускаем {sig} по {tv_tkr}")
         return {"error": "Out of trading hours"}
 
     if not trading_enabled:
-        send_telegram_log(f"⏸️ Торговля выключена — сигнал {sig} по {tv_tkr} проигнорирован")
+        await send_telegram_log(f"⏸️ Торговля выключена — сигнал {sig} по {tv_tkr} проигнорирован")
         return {"error": "Trading is disabled"}
 
     if tv_tkr not in TICKER_MAP:
-        send_telegram_log(f"⚠️ Неизвестный тикер {tv_tkr}")
+        await send_telegram_log(f"⚠️ Неизвестный тикер {tv_tkr}")
         return {"error": "Unknown ticker"}
 
     tkr = TICKER_MAP[tv_tkr]["trade"]
@@ -124,7 +124,7 @@ async def handle_trading_signal(tv_tkr: str, sig: str):
     if cur * dir_ > 0:
         new = cur + ADD_QTY[tkr]
         if abs(new) > MAX_QTY[tkr]:
-            send_telegram_log(f"🚫 Лимит {tkr}={MAX_QTY[tkr]}, пропускаем усреднение")
+            await send_telegram_log(f"🚫 Лимит {tkr}={MAX_QTY[tkr]}, пропускаем усреднение")
             return {"status": "limit"}
 
         price = await execute_market_order(tkr, sig.lower(), ADD_QTY[tkr])
@@ -134,7 +134,7 @@ async def handle_trading_signal(tv_tkr: str, sig: str):
             )
             current_positions[tkr] = new
             bal = await asyncio.to_thread(get_current_balance)
-            send_telegram_log(f"➕ Усреднение {tkr}={new:+} @ {entry_prices[tkr]:.2f}, 💰 {bal:.2f} ₽")
+            await send_telegram_log(f"➕ Усреднение {tkr}={new:+} @ {entry_prices[tkr]:.2f}, 💰 {bal:.2f} ₽")
         return {"status": "avg"}
 
     if cur * dir_ < 0:
@@ -145,7 +145,7 @@ async def handle_trading_signal(tv_tkr: str, sig: str):
             current_positions[tkr] = dir_ * sq
             entry_prices[tkr] = price
             bal = await asyncio.to_thread(get_current_balance)
-            send_telegram_log(f"🔄 Новая {tkr}={dir_*sq:+} @ {price:.2f}, 💰 {bal:.2f} ₽")
+            await send_telegram_log(f"🔄 Новая {tkr}={dir_*sq:+} @ {price:.2f}, 💰 {bal:.2f} ₽")
         return {"status": "flip"}
 
     if cur == 0:
@@ -155,7 +155,7 @@ async def handle_trading_signal(tv_tkr: str, sig: str):
             current_positions[tkr] = dir_ * sq
             entry_prices[tkr] = price
             bal = await asyncio.to_thread(get_current_balance)
-            send_telegram_log(f"✅ Открыта {tkr}={dir_*sq:+} @ {price:.2f}, 💰 {bal:.2f} ₽")
+            await send_telegram_log(f"✅ Открыта {tkr}={dir_*sq:+} @ {price:.2f}, 💰 {bal:.2f} ₽")
         return {"status": "open"}
 
     return {"status": "noop"}
