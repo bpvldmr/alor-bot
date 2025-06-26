@@ -1,13 +1,26 @@
-import httpx
 import os
+import httpx
+from loguru import logger
 
+# Загружаем токен и chat_id из переменных среды
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-CHAT  = os.getenv("TELEGRAM_CHAT_ID")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-async def send_telegram_log(text:str):
+async def send_telegram_log(text: str):
+    if not TOKEN or not CHAT_ID:
+        logger.warning("⚠️ TELEGRAM_TOKEN или TELEGRAM_CHAT_ID не указаны")
+        return
+
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    payload={"chat_id":CHAT,"text":text,"parse_mode":"Markdown"}
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": text,
+        "parse_mode": "Markdown"
+    }
+
     try:
-        await httpx.post(url, json=payload, timeout=5)
-    except Exception:
-        pass
+        async with httpx.AsyncClient(timeout=5) as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+    except Exception as e:
+        logger.error(f"❌ Ошибка при отправке Telegram уведомления: {e}")
