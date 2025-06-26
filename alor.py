@@ -1,12 +1,12 @@
-# alor.py
 import requests
 import uuid
-from config import ALOR_BASE_URL, ACCOUNT_ID
+from config import BASE_URL, ACCOUNT_ID
 from auth import get_access_token
 
 def place_order(order: dict):
     token = get_access_token()
-    url = f"{ALOR_BASE_URL}/commandapi/warptrans/TRADE/v2/client/orders/actions/market"
+    url = f"{BASE_URL}/commandapi/warptrans/TRADE/v2/client/orders/actions/market"
+
     headers = {
         "Authorization": f"Bearer {token}",
         "X-REQID": str(uuid.uuid4()),
@@ -20,7 +20,7 @@ def place_order(order: dict):
         "instrument": {
             "symbol": order["instrument"],
             "exchange": "MOEX",
-            "instrumentGroup": "FUT"  # ← для срочного рынка фьючерсов
+            "instrumentGroup": "FUT"
         },
         "comment": "ALGO BOT",
         "user": {
@@ -33,6 +33,16 @@ def place_order(order: dict):
     try:
         resp = requests.post(url, json=payload, headers=headers, timeout=10)
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+
+        # Попытка взять цену исполнения и ID (если они есть)
+        return {
+            "price": data.get("price", 0),
+            "order_id": data.get("orderNumber", "N/A"),
+            "status": "success"
+        }
+
+    except requests.exceptions.HTTPError as e:
+        return {"error": f"HTTP {e.response.status_code}: {e.response.text}"}
     except Exception as e:
         return {"error": str(e)}
