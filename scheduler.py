@@ -47,4 +47,3 @@ scheduler.add_job(scheduled_enable_trading, CronTrigger(hour=9, minute=0, day_of
 
 # ⏹️ Отключение торговли в 23:00 по будням
 scheduler.add_job(scheduled_disable_trading, CronTrigger(hour=23, minute=0, day_of_week='mon-fri'), id="disable_trading")
-`
