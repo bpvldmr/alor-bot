@@ -1,31 +1,36 @@
-# server.py
 import asyncio
 from fastapi import FastAPI
 from loguru import logger
+
 from webhook import router as webhook_router
 from balance import router as balance_router
-from auth import get_access_token  # ✅ sync-функция из auth.py
-
-from scheduler import scheduler  # ✅ подключаем готовый объект
+from auth import get_access_token
+from scheduler import scheduler
 
 app = FastAPI()
 
-# Подключение роутеров
+# ✅ Root-эндпоинт для проверки
+@app.get("/")
+async def root():
+    return {"status": "ok", "message": "🚀 Alor bot is running"}
+
+# ✅ Подключение всех роутеров
 app.include_router(webhook_router)
 app.include_router(balance_router)
 
+# ✅ Событие при старте сервера
 @app.on_event("startup")
 async def on_startup():
     logger.info("🚀 Bot started")
     asyncio.create_task(token_refresher())
-    scheduler.start()  # ✅ просто запуск
+    scheduler.start()
     logger.info("📅 Планировщик уведомлений запущен")
 
-# ♻️ Автообновление токена
+# ✅ Цикл автообновления access_token
 async def token_refresher():
     while True:
         try:
-            get_access_token()  # ✅ sync
+            get_access_token()
             logger.debug("🔁 Token refreshed")
         except Exception as e:
             logger.error(f"❌ Refresh error: {e}")
