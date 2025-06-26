@@ -23,7 +23,7 @@ ACCOUNT_ID = "7502QAB"
 # 🕒 Задача по расписанию: отправка баланса
 async def scheduled_balance_job():
     token = get_access_token()
-    url = f"{BASE_URL}/md/v2/Clients/{ACCOUNT_ID}/summary"
+    url = f"{BASE_URL}/md/v2/Clients/MOEX{ACCOUNT_ID}/summary"
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json"
