@@ -1,8 +1,9 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, time
+import pytz
 from telegram_logger import send_telegram_log
 from config import TICKER_MAP, START_QTY, ADD_QTY, MAX_QTY
-from auth import get_current_balance  # ✅
+from auth import get_current_balance
 from alor import place_order
 
 current_positions = {v["trade"]: 0 for v in TICKER_MAP.values()}
@@ -17,6 +18,11 @@ total_withdrawal = 0
 
 def is_weekend() -> bool:
     return datetime.utcnow().weekday() in (5, 6)
+
+def is_trading_hours() -> bool:
+    tz = pytz.timezone("Europe/Moscow")
+    now = datetime.now(tz)
+    return now.weekday() < 5 and time(9, 0) <= now.time() <= time(23, 0)
 
 async def execute_market_order(ticker: str, side: str, qty: int):
     res = await asyncio.to_thread(place_order, {
@@ -86,6 +92,10 @@ async def handle_trading_signal(tv_tkr: str, sig: str):
     if is_weekend():
         send_telegram_log(f"⛔ Weekend — пропускаем {sig} по {tv_tkr}")
         return {"error": "Weekend"}
+
+    if not is_trading_hours():
+        send_telegram_log(f"⏰ Вне торговых часов — пропускаем {sig} по {tv_tkr}")
+        return {"error": "Out of trading hours"}
 
     if tv_tkr not in TICKER_MAP:
         send_telegram_log(f"⚠️ Неизвестный тикер {tv_tkr}")
