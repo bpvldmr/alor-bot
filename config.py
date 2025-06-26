@@ -1,7 +1,10 @@
 import os
+from dotenv import load_dotenv
+
+load_dotenv()  # Подгружаем переменные из .env
 
 # ———————————————————————
-# Константы
+# Константы авторизации и API
 # ———————————————————————
 
 CLIENT_ID     = os.getenv("CLIENT_ID")
@@ -9,7 +12,8 @@ CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
 ACCOUNT_ID    = os.getenv("ACCOUNT_ID")
 
-BASE_URL = "https://api.alor.ru"
+ALOR_BASE_URL     = "https://api.alor.ru"
+INSTRUMENT_GROUP  = "FUT"  # Срочный рынок (фьючерсы)
 
 # ———————————————————————
 # Карта тикеров и параметры торговли
