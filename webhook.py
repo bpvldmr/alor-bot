@@ -8,7 +8,8 @@ SECRET_TOKEN = "sEcr0901A2B3"  # Убедись, что он совпадает 
 
 @router.post("/webhook/{token}")
 async def webhook(token: str, request: Request):
-    if token != SECRET_TOKEN:
+    # ✅ Защита от лишних пробелов и символов переноса
+    if token.strip() != SECRET_TOKEN:
         await send_telegram_log(f"❌ Неверный токен в URL: {token}")
         return {"status": "unauthorized"}
 
