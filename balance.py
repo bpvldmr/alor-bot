@@ -45,7 +45,7 @@ async def get_balance():
     Также отправляет сводку в Telegram.
     """
     token = get_access_token()
-    url = f"{BASE_URL}/md/v2/Clients/{ACCOUNT_ID}/summary"
+    url = f"{BASE_URL}/md/v2/Clients/MOEX/{ACCOUNT_ID}/summary"
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json"
