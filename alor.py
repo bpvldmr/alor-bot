@@ -16,12 +16,11 @@ def place_order(order: dict):
 
     payload = {
         "side": order["side"],  # "buy" или "sell"
-        "quantity": order["qty"],
+        "quantity": int(order["qty"]),  # ✅ гарантируем, что это int
         "instrument": {
             "symbol": order["instrument"],
             "exchange": "MOEX",
-            "instrumentGroup": "FUT",
-            "market": "FORTS"
+            "instrumentGroup": "FUT"  # ✅ для фьючерсов
         },
         "comment": "ALGO BOT",
         "user": {
