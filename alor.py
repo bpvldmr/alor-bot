@@ -20,7 +20,8 @@ def place_order(order: dict):
         "instrument": {
             "symbol": order["instrument"],
             "exchange": "MOEX",
-            "instrumentGroup": "FUT"
+            "instrumentGroup": "FUT",
+            "market": "FORTS"
         },
         "comment": "ALGO BOT",
         "user": {
@@ -35,7 +36,6 @@ def place_order(order: dict):
         resp.raise_for_status()
         data = resp.json()
 
-        # Попытка взять цену исполнения и ID (если они есть)
         return {
             "price": data.get("price", 0),
             "order_id": data.get("orderNumber", "N/A"),
@@ -43,6 +43,11 @@ def place_order(order: dict):
         }
 
     except requests.exceptions.HTTPError as e:
-        return {"error": f"HTTP {e.response.status_code}: {e.response.text}"}
+        return {
+            "status": "error",
+            "code": e.response.status_code,
+            "detail": e.response.text
+        }
+
     except Exception as e:
-        return {"error": str(e)}
+        return {"status": "error", "detail": str(e)}
