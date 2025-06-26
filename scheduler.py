@@ -6,8 +6,7 @@ import httpx
 from loguru import logger
 from trading import enable_trading, disable_trading
 
-BASE_URL = "https://api.alor.ru"
-ACCOUNT_ID = "7502QAB"
+from config import BASE_URL, ACCOUNT_ID  # ✅ лучше брать из config.py
 
 # 📊 Задача: запрос баланса и отправка в Telegram
 async def scheduled_balance_job():
@@ -39,9 +38,13 @@ async def scheduled_enable_trading():
 # ⏱ Планировщик задач
 scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
 
-# Отправка баланса
+# ⏰ Ежедневная отправка баланса
 scheduler.add_job(scheduled_balance_job, CronTrigger(hour=11, minute=0, day_of_week='mon-fri'), id="morning_balance")
 scheduler.add_job(scheduled_balance_job, CronTrigger(hour=18, minute=0, day_of_week='mon-fri'), id="evening_balance")
 
-# Включение/отключение торговли
-schedu
+# ▶️ Включение торговли в 09:00 по будням
+scheduler.add_job(scheduled_enable_trading, CronTrigger(hour=9, minute=0, day_of_week='mon-fri'), id="enable_trading")
+
+# ⏹️ Отключение торговли в 23:00 по будням
+scheduler.add_job(scheduled_disable_trading, CronTrigger(hour=23, minute=0, day_of_week='mon-fri'), id="disable_trading")
+`
