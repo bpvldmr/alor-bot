@@ -5,6 +5,7 @@ from telegram_logger import send_telegram_log
 from config import TICKER_MAP, START_QTY, ADD_QTY, MAX_QTY
 from auth import get_current_balance
 from alor import place_order
+from trade_logger import log_trade_result  # ✅ добавили
 
 current_positions = {v["trade"]: 0 for v in TICKER_MAP.values()}
 entry_prices = {}
@@ -92,12 +93,16 @@ async def close_position(ticker: str):
     net_investment = initial_balance + total_deposit - total_withdrawal
     roi = (total_profit / net_investment * 100) if net_investment else 0
 
-    await send_telegram_log(
-        f"❌ Закрыта {ticker} {qty:+} @ {fill_price:.2f} ₽\n"
-        f"📊 PnL {pnl:+.2f} ₽ ({pct:+.2f}%)\n"
-        f"💰 Баланс: {current_balance:.2f} ₽  | {note}\n"
-        f"📈 Общая прибыль: {total_profit:+.2f} ₽\n"
-        f"💼 Доходность на капитал: {roi:+.2f}%"
+    await log_trade_result(
+        ticker=ticker,
+        qty=qty,
+        price=fill_price,
+        pnl=pnl,
+        pct=pct,
+        balance=current_balance,
+        note=note,
+        total_profit=total_profit,
+        roi=roi
     )
 
 async def handle_trading_signal(tv_tkr: str, sig: str):
@@ -160,5 +165,4 @@ async def handle_trading_signal(tv_tkr: str, sig: str):
 
     return {"status": "noop"}
 
-# 👇 Назначаем в качестве экспортируемой функции
 process_signal = handle_trading_signal
