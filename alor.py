@@ -2,6 +2,7 @@ import requests
 import uuid
 from config import BASE_URL, ACCOUNT_ID
 from auth import get_access_token
+from telegram_logger import send_telegram_log  # ✅ для логов
 
 def place_order(order: dict):
     token = get_access_token()
@@ -16,11 +17,11 @@ def place_order(order: dict):
 
     payload = {
         "side": order["side"],  # "buy" или "sell"
-        "quantity": int(order["qty"]),  # ✅ гарантируем, что это int
+        "quantity": int(order["qty"]),  # ✅ Приведение к int
         "instrument": {
             "symbol": order["instrument"],
             "exchange": "MOEX",
-            "instrumentGroup": "FUT"  # ✅ для фьючерсов
+            "instrumentGroup": "FUT"  # ✅ Для фьючерсов
         },
         "comment": "ALGO BOT",
         "user": {
@@ -34,6 +35,13 @@ def place_order(order: dict):
         resp = requests.post(url, json=payload, headers=headers, timeout=10)
         resp.raise_for_status()
         data = resp.json()
+
+        # ✅ Логируем ответ ALOR для отладки
+        try:
+            import asyncio
+            asyncio.create_task(send_telegram_log(f"📦 Ответ ALOR:\n{data}"))
+        except:
+            pass  # если вне asyncio, ничего не делаем
 
         return {
             "price": data.get("price", 0),
