@@ -12,7 +12,7 @@ CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
 ACCOUNT_ID    = os.getenv("ACCOUNT_ID")
 
-ALOR_BASE_URL     = "https://api.alor.ru"
+BASE_URL     = "https://api.alor.ru"
 INSTRUMENT_GROUP  = "FUT"  # Срочный рынок (фьючерсы)
 
 # ———————————————————————
