@@ -9,7 +9,7 @@ from alor import place_order
 current_positions = {v["trade"]: 0 for v in TICKER_MAP.values()}
 entry_prices = {}
 
-# 🔢 Переменные для расчёта
+# 🔢 Финансовые переменные
 initial_balance = None
 last_balance = None
 total_profit = 0
@@ -63,7 +63,6 @@ async def close_position(ticker: str):
         initial_balance = current_balance
         last_balance = current_balance
 
-    # 📈 Автоматический учёт ввода/вывода
     theoretical_balance = last_balance + pnl
     diff = round(current_balance - theoretical_balance, 2)
 
@@ -114,8 +113,7 @@ async def handle_trading_signal(tv_tkr: str, sig: str):
         price = await execute_market_order(tkr, sig.lower(), ADD_QTY[tkr])
         if price is not None:
             entry_prices[tkr] = (
-                (entry_prices.get(tkr, 0) * abs(cur) + price * ADD_QTY[tkr])
-                / abs(new)
+                (entry_prices.get(tkr, 0) * abs(cur) + price * ADD_QTY[tkr]) / abs(new)
             )
             current_positions[tkr] = new
             bal = await asyncio.to_thread(get_current_balance)
