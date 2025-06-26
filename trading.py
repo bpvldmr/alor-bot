@@ -16,6 +16,19 @@ total_profit = 0
 total_deposit = 0
 total_withdrawal = 0
 
+# 🟢/⛔ Флаг активности торговли
+trading_enabled = True
+
+def enable_trading():
+    global trading_enabled
+    trading_enabled = True
+    send_telegram_log("✅ Торговля включена")
+
+def disable_trading():
+    global trading_enabled
+    trading_enabled = False
+    send_telegram_log("⛔ Торговля отключена")
+
 def is_weekend() -> bool:
     return datetime.utcnow().weekday() in (5, 6)
 
@@ -96,6 +109,10 @@ async def handle_trading_signal(tv_tkr: str, sig: str):
         send_telegram_log(f"⏰ Вне торговых часов — пропускаем {sig} по {tv_tkr}")
         return {"error": "Out of trading hours"}
 
+    if not trading_enabled:
+        send_telegram_log(f"⏸️ Торговля выключена — сигнал {sig} по {tv_tkr} проигнорирован")
+        return {"error": "Trading is disabled"}
+
     if tv_tkr not in TICKER_MAP:
         send_telegram_log(f"⚠️ Неизвестный тикер {tv_tkr}")
         return {"error": "Unknown ticker"}
@@ -143,4 +160,5 @@ async def handle_trading_signal(tv_tkr: str, sig: str):
 
     return {"status": "noop"}
 
+# 👇 Назначаем в качестве экспортируемой функции
 process_signal = handle_trading_signal
