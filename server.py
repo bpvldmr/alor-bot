@@ -1,6 +1,6 @@
 import asyncio
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from loguru import logger
 
 from webhook import router as webhook_router
@@ -8,15 +8,16 @@ from balance import router as balance_router
 from auth import get_access_token
 from scheduler import scheduler
 from telegram_logger import send_telegram_log
+from trading import handle_signal  # ⬅️ Добавил импорт
 
 app = FastAPI()
 
-# ✅ Root-эндпоинт с поддержкой HEAD
+# ✅ Root-эндпоинт
 @app.api_route("/", methods=["GET", "HEAD"])
 async def root():
     return {"status": "ok", "message": "🚀 Alor bot is running"}
 
-# ✅ Health Check для Render
+# ✅ Health Check
 @app.api_route("/healthz", methods=["GET", "HEAD"])
 async def health_check():
     return {"status": "healthy"}
@@ -30,13 +31,11 @@ app.include_router(balance_router)
 async def on_startup():
     logger.info("🚀 Bot started")
 
-    # 🟢 Уведомление в Telegram
     try:
         await send_telegram_log("✅ Бот успешно задеплоен и запущен на Render")
     except Exception as e:
         logger.error(f"❌ Ошибка при отправке уведомления в Telegram: {e}")
 
-    # 🔁 Запуск автообновления токена
     try:
         asyncio.create_task(token_refresher())
         logger.info("🔁 Запущен цикл обновления токена")
@@ -47,7 +46,6 @@ async def on_startup():
         except:
             pass
 
-    # 📅 Запуск планировщика
     try:
         scheduler.start()
         logger.info("📅 Планировщик уведомлений запущен")
@@ -62,14 +60,13 @@ async def on_startup():
         except:
             pass
 
-    # 💡 Поддержка event loop (без уведомлений)
     try:
         asyncio.create_task(keep_alive())
         logger.info("🔄 Запущен keep_alive для удержания event loop")
     except Exception as e:
         logger.error(f"❌ Ошибка запуска keep_alive: {e}")
 
-# ✅ Завершение работы сервера
+# ✅ Завершение работы
 @app.on_event("shutdown")
 async def on_shutdown():
     logger.warning("🛑 Сервер завершает работу")
@@ -78,7 +75,7 @@ async def on_shutdown():
     except Exception as e:
         logger.error(f"❌ Ошибка отправки Telegram-лога при остановке: {e}")
 
-# ✅ Цикл автообновления access_token
+# ✅ Цикл обновления токена
 async def token_refresher():
     while True:
         try:
@@ -90,9 +87,29 @@ async def token_refresher():
                 await send_telegram_log(f"❌ Ошибка обновления токена:\n{e}")
             except:
                 pass
-        await asyncio.sleep(1500)  # ~25 минут
+        await asyncio.sleep(1500)
 
-# ✅ Тихий keep_alive (без логов)
+# ✅ Поддержка event loop
 async def keep_alive():
     while True:
         await asyncio.sleep(55)
+
+# ✅ Webhook от TradingView
+@app.post("/webhook/sEcr0901A2B3")
+async def tradingview_webhook(request: Request):
+    payload = await request.json()
+    signal_ticker = payload.get("ticker")
+    action = payload.get("action")
+    token = payload.get("token")
+
+    expected_token = os.getenv("WEBHOOK_TOKEN")
+
+    if token != expected_token:
+        logger.warning("🚫 Неверный токен вебхука")
+        return {"status": "unauthorized"}
+
+    if not signal_ticker or not action:
+        return {"status": "invalid payload"}
+
+    await handle_signal(signal_ticker, action)
+    return {"status": "ok"}
