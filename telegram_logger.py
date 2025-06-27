@@ -22,5 +22,9 @@ async def send_telegram_log(text: str):
         async with httpx.AsyncClient(timeout=5) as client:
             response = await client.post(url, json=payload)
             response.raise_for_status()
+    except httpx.RequestError as e:
+        logger.error(f"❌ Ошибка сети при отправке Telegram уведомления: {e}")
+    except httpx.HTTPStatusError as e:
+        logger.error(f"❌ Ошибка HTTP при отправке Telegram уведомления: {e.response.status_code} - {e.response.text}")
     except Exception as e:
-        logger.error(f"❌ Ошибка при отправке Telegram уведомления: {e}")
+        logger.error(f"❌ Неизвестная ошибка при отправке Telegram уведомления: {e}")
