@@ -16,10 +16,10 @@ async def place_order(order: dict):
     }
 
     payload = {
-        "side": order["side"],
-        "quantity": int(order["qty"]),
+        "side": order["side"].upper(),  # ✅ убедись, что "BUY"/"SELL"
+        "quantity": int(order["qty"]),  # ✅ гарантированно int
         "instrument": {
-            "symbol": order["instrument"],
+            "symbol": order["instrument"],  # ✅ должен быть типа "NGN5", "CRU5"
             "exchange": "MOEX",
             "instrumentGroup": "FUT"
         },
@@ -31,11 +31,10 @@ async def place_order(order: dict):
         "allowMargin": False
     }
 
-    # ✅ лог до отправки
+    # ✅ ЛОГ ПЕРЕД ОТПРАВКОЙ
     await send_telegram_log(
         f"📤 Отправка рыночной заявки:\n"
         f"🔗 URL: `{url}`\n"
-        f"🪪 Token: `{token[:12]}...`\n"
         f"📦 Payload:\n```json\n{payload}\n```"
     )
 
