@@ -62,13 +62,14 @@ async def token_refresher():
         try:
             get_access_token()
             logger.debug("🔁 Token refreshed")
+            await send_telegram_log("🔁 Access token обновлён ✅")
         except Exception as e:
             logger.error(f"❌ Ошибка обновления токена: {e}")
             try:
                 await send_telegram_log(f"❌ Ошибка обновления токена:\n{e}")
             except:
                 pass
-        await asyncio.sleep(1500)
+        await asyncio.sleep(1500)  # 25 минут
 
 async def keep_alive():
     while True:
