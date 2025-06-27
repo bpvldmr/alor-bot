@@ -1,4 +1,5 @@
 import asyncio
+import os
 from fastapi import FastAPI
 from loguru import logger
 
@@ -6,7 +7,7 @@ from webhook import router as webhook_router
 from balance import router as balance_router
 from auth import get_access_token
 from scheduler import scheduler
-from telegram_logger import send_telegram_log  # ✅ лог в телегу
+from telegram_logger import send_telegram_log
 
 app = FastAPI()
 
@@ -28,11 +29,14 @@ app.include_router(balance_router)
 @app.on_event("startup")
 async def on_startup():
     logger.info("🚀 Bot started")
+    
+    # 🔔 Уведомление о старте
     try:
         await send_telegram_log("✅ Бот успешно задеплоен и запущен на Render")
     except Exception as e:
         logger.error(f"❌ Ошибка отправки Telegram-лога при старте: {e}")
 
+    # 🔁 Цикл автообновления токена
     try:
         asyncio.create_task(token_refresher())
         logger.info("🔁 Запущен цикл обновления токена")
@@ -43,6 +47,7 @@ async def on_startup():
         except:
             pass
 
+    # 📅 Планировщик
     try:
         scheduler.start()
         logger.info("📅 Планировщик уведомлений запущен")
@@ -57,7 +62,7 @@ async def on_startup():
         except:
             pass
 
-    # ✅ Запускаем задачу для удержания event loop
+    # ✅ Поддержание активного event loop
     asyncio.create_task(keep_alive())
 
 # ✅ Событие при завершении сервера
@@ -86,4 +91,4 @@ async def token_refresher():
 # ✅ Задача для удержания приложения в фоне
 async def keep_alive():
     while True:
-        await asyncio.sleep(3600)  # 1 час (или любой большой интервал)
+        await asyncio.sleep(3600)  # 1 час
