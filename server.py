@@ -16,38 +16,38 @@ app = FastAPI()
 async def root():
     return {"status": "ok", "message": "🚀 Alor bot is running"}
 
-# ✅ Health Check эндпоинт для Render
+# ✅ Health Check для Render
 @app.api_route("/healthz", methods=["GET", "HEAD"])
 async def health_check():
     return {"status": "healthy"}
 
-# ✅ Подключение всех роутеров
+# ✅ Подключаем роутеры
 app.include_router(webhook_router)
 app.include_router(balance_router)
 
-# ✅ Событие при старте сервера
+# ✅ Стартовое событие
 @app.on_event("startup")
 async def on_startup():
     logger.info("🚀 Bot started")
-    
-    # 🔔 Уведомление о старте
+
+    # 🟢 Уведомление в Telegram
     try:
         await send_telegram_log("✅ Бот успешно задеплоен и запущен на Render")
     except Exception as e:
-        logger.error(f"❌ Ошибка отправки Telegram-лога при старте: {e}")
+        logger.error(f"❌ Ошибка при отправке уведомления в Telegram: {e}")
 
-    # 🔁 Цикл автообновления токена
+    # 🔁 Запуск автообновления токена
     try:
         asyncio.create_task(token_refresher())
         logger.info("🔁 Запущен цикл обновления токена")
     except Exception as e:
-        logger.error(f"❌ Ошибка при запуске token_refresher: {e}")
+        logger.error(f"❌ Ошибка запуска token_refresher: {e}")
         try:
             await send_telegram_log(f"❌ Ошибка запуска token_refresher:\n{e}")
         except:
             pass
 
-    # 📅 Планировщик
+    # 📅 Запуск планировщика
     try:
         scheduler.start()
         logger.info("📅 Планировщик уведомлений запущен")
@@ -62,10 +62,14 @@ async def on_startup():
         except:
             pass
 
-    # ✅ Поддержание активного event loop
-    asyncio.create_task(keep_alive())
+    # 💡 Поддержка event loop, чтобы контейнер не завершался
+    try:
+        asyncio.create_task(keep_alive())
+        logger.info("🔄 Запущен keep_alive для удержания event loop")
+    except Exception as e:
+        logger.error(f"❌ Ошибка запуска keep_alive: {e}")
 
-# ✅ Событие при завершении сервера
+# ✅ Завершение работы сервера
 @app.on_event("shutdown")
 async def on_shutdown():
     logger.warning("🛑 Сервер завершает работу")
@@ -86,9 +90,9 @@ async def token_refresher():
                 await send_telegram_log(f"❌ Ошибка обновления токена:\n{e}")
             except:
                 pass
-        await asyncio.sleep(1500)  # 25 минут
+        await asyncio.sleep(1500)  # ~25 минут
 
-# ✅ Задача для удержания приложения в фоне
+# ✅ Задача удержания процесса
 async def keep_alive():
     while True:
         await asyncio.sleep(3600)  # 1 час
