@@ -1,12 +1,12 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from auth import get_access_token
 from balance import send_balance_to_telegram
 import httpx
 from loguru import logger
 from trading import enable_trading, disable_trading
 from config import BASE_URL, ACCOUNT_ID
-
 
 # 📊 Задача: запрос баланса и отправка в Telegram
 async def scheduled_balance_job():
@@ -28,7 +28,6 @@ async def scheduled_balance_job():
     except Exception as e:
         logger.exception("❌ Ошибка при автоотправке баланса в Telegram")
 
-
 # ⏹️ Отключение торговли
 async def scheduled_disable_trading():
     try:
@@ -36,7 +35,6 @@ async def scheduled_disable_trading():
         await disable_trading()
     except Exception as e:
         logger.exception("❌ Ошибка при отключении торговли")
-
 
 # ▶️ Включение торговли
 async def scheduled_enable_trading():
@@ -46,6 +44,9 @@ async def scheduled_enable_trading():
     except Exception as e:
         logger.exception("❌ Ошибка при включении торговли")
 
+# 🔄 Пинг-задача каждые 5 минут — держит Render живым
+async def ping_job():
+    logger.info("🔄 Ping job is alive (Render keep-alive)")
 
 # ⏱ Планировщик задач
 scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
@@ -59,3 +60,6 @@ scheduler.add_job(scheduled_enable_trading, CronTrigger(hour=9, minute=0, day_of
 
 # ⏹️ Отключение торговли в 23:00 по будням
 scheduler.add_job(scheduled_disable_trading, CronTrigger(hour=23, minute=0, day_of_week='mon-fri'), id="disable_trading")
+
+# 🔄 Постоянный ping для Render
+scheduler.add_job(ping_job, IntervalTrigger(minutes=5), id="ping_keepalive")
