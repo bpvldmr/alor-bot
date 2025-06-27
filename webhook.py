@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request
 import json
 from telegram_logger import send_telegram_log
-from trading import handle_trading_signal as process_signal
+from trading import process_signal
 
 
 router = APIRouter()
