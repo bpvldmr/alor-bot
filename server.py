@@ -28,22 +28,34 @@ app.include_router(balance_router)
 @app.on_event("startup")
 async def on_startup():
     logger.info("🚀 Bot started")
-    await send_telegram_log("✅ Бот успешно задеплоен и запущен на Render")
+    try:
+        await send_telegram_log("✅ Бот успешно задеплоен и запущен на Render")
+    except Exception as e:
+        logger.error(f"❌ Ошибка отправки Telegram-лога при старте: {e}")
 
     try:
         asyncio.create_task(token_refresher())
         logger.info("🔁 Запущен цикл обновления токена")
     except Exception as e:
         logger.error(f"❌ Ошибка при запуске token_refresher: {e}")
-        await send_telegram_log(f"❌ Ошибка запуска token_refresher:\n{e}")
+        try:
+            await send_telegram_log(f"❌ Ошибка запуска token_refresher:\n{e}")
+        except:
+            pass
 
     try:
         scheduler.start()
         logger.info("📅 Планировщик уведомлений запущен")
-        await send_telegram_log("📅 Планировщик уведомлений запущен")
+        try:
+            await send_telegram_log("📅 Планировщик уведомлений запущен")
+        except:
+            pass
     except Exception as e:
         logger.error(f"❌ Ошибка запуска планировщика: {e}")
-        await send_telegram_log(f"❌ Ошибка запуска планировщика:\n{e}")
+        try:
+            await send_telegram_log(f"❌ Ошибка запуска планировщика:\n{e}")
+        except:
+            pass
 
     # ✅ Запускаем задачу для удержания event loop
     asyncio.create_task(keep_alive())
@@ -52,7 +64,10 @@ async def on_startup():
 @app.on_event("shutdown")
 async def on_shutdown():
     logger.warning("🛑 Сервер завершает работу")
-    await send_telegram_log("🛑 Сервер остановлен на Render")
+    try:
+        await send_telegram_log("🛑 Сервер остановлен на Render")
+    except Exception as e:
+        logger.error(f"❌ Ошибка отправки Telegram-лога при остановке: {e}")
 
 # ✅ Цикл автообновления access_token
 async def token_refresher():
@@ -62,7 +77,10 @@ async def token_refresher():
             logger.debug("🔁 Token refreshed")
         except Exception as e:
             logger.error(f"❌ Ошибка обновления токена: {e}")
-            await send_telegram_log(f"❌ Ошибка обновления токена:\n{e}")
+            try:
+                await send_telegram_log(f"❌ Ошибка обновления токена:\n{e}")
+            except:
+                pass
         await asyncio.sleep(1500)  # 25 минут
 
 # ✅ Задача для удержания приложения в фоне
