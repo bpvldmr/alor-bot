@@ -7,7 +7,8 @@ from webhook import router as webhook_router
 from balance import router as balance_router
 from auth import get_access_token
 from telegram_logger import send_telegram_log
-from trading import handle_signal  # Обработка сигналов
+from trading import process_signal as handle_signal
+
 
 app = FastAPI()
 
