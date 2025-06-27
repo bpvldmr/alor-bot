@@ -1,8 +1,9 @@
 import requests
 import uuid
+import asyncio
 from config import BASE_URL, ACCOUNT_ID
 from auth import get_access_token
-from telegram_logger import send_telegram_log  # ✅ для логов
+from telegram_logger import send_telegram_log  # ✅ логирование
 
 def place_order(order: dict):
     token = get_access_token()
@@ -17,11 +18,11 @@ def place_order(order: dict):
 
     payload = {
         "side": order["side"],  # "buy" или "sell"
-        "quantity": int(order["qty"]),  # ✅ Приведение к int
+        "quantity": int(order["qty"]),
         "instrument": {
             "symbol": order["instrument"],
             "exchange": "MOEX",
-            "instrumentGroup": "FUT"  # ✅ Для фьючерсов
+            "instrumentGroup": "FUT"
         },
         "comment": "ALGO BOT",
         "user": {
@@ -31,17 +32,30 @@ def place_order(order: dict):
         "allowMargin": False
     }
 
+    # ✅ ДО ОТПРАВКИ запроса — логируем параметры
+    try:
+        asyncio.create_task(send_telegram_log(
+            f"📤 Отправка рыночной заявки:\n"
+            f"🔗 URL: `{url}`\n"
+            f"🪪 Token: `{token[:12]}...`\n"
+            f"📦 Payload:\n```json\n{payload}\n```"
+        ))
+    except:
+        pass
+
     try:
         resp = requests.post(url, json=payload, headers=headers, timeout=10)
         resp.raise_for_status()
         data = resp.json()
 
-        # ✅ Логируем ответ ALOR для отладки
+        # ✅ Ответ ALOR логируем
         try:
-            import asyncio
-            asyncio.create_task(send_telegram_log(f"📦 Ответ ALOR:\n{data}"))
+            asyncio.create_task(send_telegram_log(
+                f"✅ Успешная заявка\n"
+                f"📄 Ответ ALOR:\n```json\n{data}\n```"
+            ))
         except:
-            pass  # если вне asyncio, ничего не делаем
+            pass
 
         return {
             "price": data.get("price", 0),
@@ -50,6 +64,14 @@ def place_order(order: dict):
         }
 
     except requests.exceptions.HTTPError as e:
+        try:
+            asyncio.create_task(send_telegram_log(
+                f"❌ Ошибка HTTP при заявке:\n"
+                f"Код: {e.response.status_code}\n"
+                f"Ответ:\n```{e.response.text}```"
+            ))
+        except:
+            pass
         return {
             "status": "error",
             "code": e.response.status_code,
@@ -57,4 +79,10 @@ def place_order(order: dict):
         }
 
     except Exception as e:
+        try:
+            asyncio.create_task(send_telegram_log(
+                f"❌ Ошибка при заявке:\n{str(e)}"
+            ))
+        except:
+            pass
         return {"status": "error", "detail": str(e)}
