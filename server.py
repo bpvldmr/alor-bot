@@ -97,6 +97,6 @@ async def keep_alive():
     while True:
         try:
             await send_telegram_log("🟢 keep_alive работает")
-        except:
-            pass
+        except Exception as e:
+            logger.error(f"❌ Ошибка keep_alive: {e}")
         await asyncio.sleep(55)
