@@ -62,7 +62,7 @@ async def on_startup():
         except:
             pass
 
-    # 💡 Поддержка event loop, чтобы контейнер не завершался
+    # 💡 Поддержка event loop (без уведомлений)
     try:
         asyncio.create_task(keep_alive())
         logger.info("🔄 Запущен keep_alive для удержания event loop")
@@ -92,11 +92,7 @@ async def token_refresher():
                 pass
         await asyncio.sleep(1500)  # ~25 минут
 
-# ✅ Задача удержания процесса
+# ✅ Тихий keep_alive (без логов)
 async def keep_alive():
     while True:
-        try:
-            await send_telegram_log("🟢 keep_alive работает")
-        except Exception as e:
-            logger.error(f"❌ Ошибка keep_alive: {e}")
         await asyncio.sleep(55)
