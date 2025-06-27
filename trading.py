@@ -128,6 +128,7 @@ async def handle_trading_signal(tv_tkr: str, sig: str):
 
     tkr = TICKER_MAP[tv_tkr]["trade"]
     dir_ = 1 if sig.upper() == "LONG" else -1
+    side = "buy" if sig.upper() == "LONG" else "sell"
     cur = current_positions.get(tkr, 0)
 
     if cur * dir_ > 0:
@@ -136,7 +137,7 @@ async def handle_trading_signal(tv_tkr: str, sig: str):
             await send_telegram_log(f"🚫 Лимит {tkr}={MAX_QTY[tkr]}, пропускаем усреднение")
             return {"status": "limit"}
 
-        price = await execute_market_order(tkr, sig.lower(), ADD_QTY[tkr])
+        price = await execute_market_order(tkr, side, ADD_QTY[tkr])
         if price is not None:
             entry_prices[tkr] = (
                 (entry_prices.get(tkr, 0) * abs(cur) + price * ADD_QTY[tkr]) / abs(new)
@@ -149,7 +150,7 @@ async def handle_trading_signal(tv_tkr: str, sig: str):
     if cur * dir_ < 0:
         await close_position(tkr)
         sq = START_QTY[tkr]
-        price = await execute_market_order(tkr, sig.lower(), sq)
+        price = await execute_market_order(tkr, side, sq)
         if price is not None:
             current_positions[tkr] = dir_ * sq
             entry_prices[tkr] = price
@@ -159,7 +160,7 @@ async def handle_trading_signal(tv_tkr: str, sig: str):
 
     if cur == 0:
         sq = START_QTY[tkr]
-        price = await execute_market_order(tkr, sig.lower(), sq)
+        price = await execute_market_order(tkr, side, sq)
         if price is not None:
             current_positions[tkr] = dir_ * sq
             entry_prices[tkr] = price
