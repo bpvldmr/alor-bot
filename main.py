@@ -1,10 +1,11 @@
 from fastapi import FastAPI, APIRouter, Request
 from loguru import logger
+from trading import handle_trading_signal  # ✅ прямой импорт сигнальной функции
 
 app = FastAPI()
 webhook_router = APIRouter()
 
-# ✅ Токен, который ты задаёшь для защиты URL
+# 🔐 Токен защиты вебхука
 VALID_TOKEN = "sEcr0901A2B3"
 
 @webhook_router.post("/webhook/{token}")
@@ -21,19 +22,18 @@ async def webhook(request: Request, token: str):
         if not signal_ticker or not action:
             return {"error": "Нужно передать signal_ticker и action"}
 
-        result = await process_signal(signal_ticker, action)  # ✅ await для async
-        logger.info(f"Сигнал: {signal_ticker}, действие: {action} → {result}")
+        result = await handle_trading_signal(signal_ticker, action)  # ✅ вызываем напрямую
+        logger.info(f"✅ Сигнал обработан: {signal_ticker}, действие: {action} → {result}")
         return result
 
     except Exception as e:
-        logger.error(f"Ошибка: {e}")
+        logger.error(f"❌ Ошибка обработки сигнала: {e}")
         return {"error": str(e)}
 
-# ✅ Включение планировщика при старте FastAPI
-@app.on_event("startup")
-async def startup_event():
-    scheduler.start()
-    logger.info("📅 Планировщик задач запущен")
-
-# Регистрируем маршруты
+# ✅ Регистрируем маршруты
 app.include_router(webhook_router)
+
+# 🔄 Тестовый эндпоинт
+@app.get("/")
+async def root():
+    return {"status": "ok", "message": "🚀 Бот запущен"}
