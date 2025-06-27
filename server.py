@@ -40,6 +40,9 @@ async def on_startup():
         logger.error(f"❌ Ошибка запуска планировщика: {e}")
         await send_telegram_log(f"❌ Ошибка запуска планировщика:\n{e}")
 
+    # ✅ Запускаем задачу для удержания event loop
+    asyncio.create_task(keep_alive())
+
 # ✅ Событие при завершении сервера
 @app.on_event("shutdown")
 async def on_shutdown():
@@ -56,3 +59,8 @@ async def token_refresher():
             logger.error(f"❌ Ошибка обновления токена: {e}")
             await send_telegram_log(f"❌ Ошибка обновления токена:\n{e}")
         await asyncio.sleep(1500)  # 25 минут
+
+# ✅ Задача для удержания приложения в фоне
+async def keep_alive():
+    while True:
+        await asyncio.sleep(3600)  # 1 час (или любой большой интервал)
