@@ -1,11 +1,10 @@
-import requests
 import uuid
-import asyncio
+import httpx
 from config import BASE_URL, ACCOUNT_ID
 from auth import get_access_token
 from telegram_logger import send_telegram_log  # ✅ логирование
 
-def place_order(order: dict):
+async def place_order(order: dict):
     token = get_access_token()
     url = f"{BASE_URL}/commandapi/warptrans/TRADE/v2/client/orders/actions/market"
 
@@ -17,7 +16,7 @@ def place_order(order: dict):
     }
 
     payload = {
-        "side": order["side"],  # "buy" или "sell"
+        "side": order["side"],
         "quantity": int(order["qty"]),
         "instrument": {
             "symbol": order["instrument"],
@@ -32,30 +31,24 @@ def place_order(order: dict):
         "allowMargin": False
     }
 
-    # ✅ ДО ОТПРАВКИ запроса — логируем параметры
-    try:
-        asyncio.create_task(send_telegram_log(
-            f"📤 Отправка рыночной заявки:\n"
-            f"🔗 URL: `{url}`\n"
-            f"🪪 Token: `{token[:12]}...`\n"
-            f"📦 Payload:\n```json\n{payload}\n```"
-        ))
-    except:
-        pass
+    # ✅ лог до отправки
+    await send_telegram_log(
+        f"📤 Отправка рыночной заявки:\n"
+        f"🔗 URL: `{url}`\n"
+        f"🪪 Token: `{token[:12]}...`\n"
+        f"📦 Payload:\n```json\n{payload}\n```"
+    )
 
     try:
-        resp = requests.post(url, json=payload, headers=headers, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
 
-        # ✅ Ответ ALOR логируем
-        try:
-            asyncio.create_task(send_telegram_log(
-                f"✅ Успешная заявка\n"
-                f"📄 Ответ ALOR:\n```json\n{data}\n```"
-            ))
-        except:
-            pass
+        await send_telegram_log(
+            f"✅ Успешная заявка\n"
+            f"📄 Ответ ALOR:\n```json\n{data}\n```"
+        )
 
         return {
             "price": data.get("price", 0),
@@ -63,15 +56,12 @@ def place_order(order: dict):
             "status": "success"
         }
 
-    except requests.exceptions.HTTPError as e:
-        try:
-            asyncio.create_task(send_telegram_log(
-                f"❌ Ошибка HTTP при заявке:\n"
-                f"Код: {e.response.status_code}\n"
-                f"Ответ:\n```{e.response.text}```"
-            ))
-        except:
-            pass
+    except httpx.HTTPStatusError as e:
+        await send_telegram_log(
+            f"❌ Ошибка HTTP при заявке:\n"
+            f"Код: {e.response.status_code}\n"
+            f"Ответ:\n```{e.response.text}```"
+        )
         return {
             "status": "error",
             "code": e.response.status_code,
@@ -79,10 +69,5 @@ def place_order(order: dict):
         }
 
     except Exception as e:
-        try:
-            asyncio.create_task(send_telegram_log(
-                f"❌ Ошибка при заявке:\n{str(e)}"
-            ))
-        except:
-            pass
+        await send_telegram_log(f"❌ Ошибка при заявке:\n{str(e)}")
         return {"status": "error", "detail": str(e)}
