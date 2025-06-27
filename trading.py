@@ -44,6 +44,10 @@ async def execute_market_order(ticker: str, side: str, qty: int):
         "qty": qty,
         "instrument": ticker
     })
+
+    # ✅ Добавлен print для отладки
+    print("📥 Order sent, got response:", res)
+
     if "error" in res:
         await send_telegram_log(f"❌ {side}/{ticker}/{qty}: {res['error']}")
         return None
