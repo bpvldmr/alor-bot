@@ -1,6 +1,7 @@
 import os
 import time
-import requests
+import asyncio
+import httpx
 from loguru import logger
 
 # Константы
@@ -16,28 +17,32 @@ ACCOUNT_ID    = os.getenv("ACCOUNT_ID")
 _token_cache = None
 _token_expires_at = 0
 
-def get_access_token() -> str:
+async def get_access_token() -> str:
     global _token_cache, _token_expires_at
+
     if time.time() < _token_expires_at - 30:
         return _token_cache
 
     url = f"{AUTH_URL}/refresh?token={REFRESH_TOKEN}"
-    resp = requests.post(url, timeout=10)
-    resp.raise_for_status()
-    js = resp.json()
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post(url)
+        resp.raise_for_status()
+        js = resp.json()
 
     _token_cache = js["AccessToken"]
-    _token_expires_at = time.time() + 25 * 60
+    _token_expires_at = time.time() + 25 * 60  # 25 минут
     logger.debug("🔑 Access token refreshed")
     return _token_cache
 
-def get_current_balance() -> float:
-    token = get_access_token()
-    url   = f"{BASE_URL}/md/v2/Clients/legacy/MOEX/{ACCOUNT_ID}/money?format=Simple"
+async def get_current_balance() -> float:
+    token = await get_access_token()
+    url = f"{BASE_URL}/md/v2/Clients/legacy/MOEX/{ACCOUNT_ID}/money?format=Simple"
     headers = {"Authorization": f"Bearer {token}"}
-    resp = requests.get(url, headers=headers, timeout=10)
-    resp.raise_for_status()
-    data = resp.json()
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(url, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
 
     for entry in data.get("money", []):
         if entry.get("currency") in ("RUB", "RUR"):
