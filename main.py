@@ -1,5 +1,4 @@
 from fastapi import FastAPI, APIRouter, Request
-from trading import process_signal
 from loguru import logger
 
 app = FastAPI()
