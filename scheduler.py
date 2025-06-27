@@ -5,35 +5,47 @@ from balance import send_balance_to_telegram
 import httpx
 from loguru import logger
 from trading import enable_trading, disable_trading
+from config import BASE_URL, ACCOUNT_ID
 
-from config import BASE_URL, ACCOUNT_ID  # ✅ лучше брать из config.py
 
 # 📊 Задача: запрос баланса и отправка в Telegram
 async def scheduled_balance_job():
-    token = get_access_token()
-    url = f"{BASE_URL}/md/v2/Clients/MOEX/{ACCOUNT_ID}/summary"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json"
-    }
-
     try:
+        token = get_access_token()
+        url = f"{BASE_URL}/md/v2/Clients/MOEX/{ACCOUNT_ID}/summary"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json"
+        }
+
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(url, headers=headers)
             resp.raise_for_status()
             data = resp.json()
             logger.debug(f"📊 [CRON] Ответ от Alor: {data}")
             await send_balance_to_telegram(data)
+
     except Exception as e:
         logger.exception("❌ Ошибка при автоотправке баланса в Telegram")
 
+
 # ⏹️ Отключение торговли
 async def scheduled_disable_trading():
-    await disable_trading()
+    try:
+        logger.info("⏹️ CRON: Отключение торговли")
+        await disable_trading()
+    except Exception as e:
+        logger.exception("❌ Ошибка при отключении торговли")
+
 
 # ▶️ Включение торговли
 async def scheduled_enable_trading():
-    await enable_trading()
+    try:
+        logger.info("▶️ CRON: Включение торговли")
+        await enable_trading()
+    except Exception as e:
+        logger.exception("❌ Ошибка при включении торговли")
+
 
 # ⏱ Планировщик задач
 scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
