@@ -15,6 +15,11 @@ app = FastAPI()
 async def root():
     return {"status": "ok", "message": "🚀 Alor bot is running"}
 
+# ✅ Health Check эндпоинт для Render
+@app.api_route("/healthz", methods=["GET", "HEAD"])
+async def health_check():
+    return {"status": "healthy"}
+
 # ✅ Подключение всех роутеров
 app.include_router(webhook_router)
 app.include_router(balance_router)
