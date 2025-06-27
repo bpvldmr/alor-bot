@@ -25,7 +25,7 @@ async def webhook(request: Request, token: str):
         result = await handle_trading_signal(signal_ticker, action)  # ✅ вызываем напрямую
         logger.info(f"✅ Сигнал обработан: {signal_ticker}, действие: {action} → {result}")
         return result
-
+        
     except Exception as e:
         logger.error(f"❌ Ошибка обработки сигнала: {e}")
         return {"error": str(e)}
