@@ -1,6 +1,7 @@
 from fastapi import FastAPI, APIRouter, Request
 from loguru import logger
-from trading import handle_trading_signal  # ✅ прямой импорт сигнальной функции
+from trading import handle_trading_signal as process_signal
+
 
 app = FastAPI()
 webhook_router = APIRouter()
