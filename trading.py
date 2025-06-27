@@ -39,13 +39,12 @@ def is_trading_hours() -> bool:
     return now.weekday() < 5 and time(9, 0) <= now.time() <= time(23, 0)
 
 async def execute_market_order(ticker: str, side: str, qty: int):
-    res = await asyncio.to_thread(place_order, {
+    res = await place_order({
         "side": side.upper(),
         "qty": qty,
         "instrument": ticker
     })
 
-    # ✅ Добавлен print для отладки
     print("📥 Order sent, got response:", res)
 
     if "error" in res:
@@ -56,6 +55,7 @@ async def execute_market_order(ticker: str, side: str, qty: int):
     order_id = res.get("order_id", "—")
     await send_telegram_log(f"✅ {side}/{ticker}/{qty} исполнена @ {price:.2f} ₽ (ID {order_id})")
     return price
+
 
 async def close_position(ticker: str):
     global total_profit, initial_balance, last_balance, total_deposit, total_withdrawal
