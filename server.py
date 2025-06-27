@@ -7,17 +7,15 @@ from webhook import router as webhook_router
 from balance import router as balance_router
 from auth import get_access_token
 from telegram_logger import send_telegram_log
-from trading import process_signal as handle_signal
+from trading import process_signal
 
 
 app = FastAPI()
 
-# ✅ Root-эндпоинт
 @app.api_route("/", methods=["GET", "HEAD"])
 async def root():
     return {"status": "ok", "message": "🚀 Alor bot is running"}
 
-# ✅ Health Check
 @app.api_route("/healthz", methods=["GET", "HEAD"])
 async def health_check():
     return {"status": "healthy"}
@@ -26,7 +24,6 @@ async def health_check():
 app.include_router(webhook_router)
 app.include_router(balance_router)
 
-# ✅ Стартовое событие
 @app.on_event("startup")
 async def on_startup():
     logger.info("🚀 Bot started")
@@ -52,7 +49,6 @@ async def on_startup():
     except Exception as e:
         logger.error(f"❌ Ошибка запуска keep_alive: {e}")
 
-# ✅ Завершение работы
 @app.on_event("shutdown")
 async def on_shutdown():
     logger.warning("🛑 Сервер завершает работу")
@@ -61,7 +57,6 @@ async def on_shutdown():
     except Exception as e:
         logger.error(f"❌ Ошибка отправки Telegram-лога при остановке: {e}")
 
-# ✅ Цикл обновления токена
 async def token_refresher():
     while True:
         try:
@@ -75,7 +70,6 @@ async def token_refresher():
                 pass
         await asyncio.sleep(1500)
 
-# ✅ Поддержка event loop
 async def keep_alive():
     while True:
         await asyncio.sleep(55)
@@ -84,18 +78,26 @@ async def keep_alive():
 @app.post("/webhook/sEcr0901A2B3")
 async def tradingview_webhook(request: Request):
     payload = await request.json()
-    signal_ticker = payload.get("ticker")
-    action = payload.get("action")
+    tv_tkr = payload.get("signal_ticker")
+    sig = payload.get("action")
     token = payload.get("token")
 
     expected_token = os.getenv("WEBHOOK_TOKEN")
 
-    if token != expected_token:
+    if expected_token and token != expected_token:
         logger.warning("🚫 Неверный токен вебхука")
         return {"status": "unauthorized"}
 
-    if not signal_ticker or not action:
+    if not tv_tkr or not sig:
+        logger.warning("⚠️ Отсутствуют signal_ticker или action")
         return {"status": "invalid payload"}
 
-    await handle_signal(signal_ticker, action)
-    return {"status": "ok"}
+    try:
+        await send_telegram_log(f"📩 TV → Bot:\n{payload}")
+        result = await process_signal(tv_tkr, sig)
+        logger.info(f"📊 Обработан сигнал {tv_tkr} / {sig}: {result}")
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        logger.error(f"❌ Error in signal handler: {e}")
+        await send_telegram_log(f"❌ Ошибка при обработке сигнала:\n{e}")
+        return {"status": "error", "message": str(e)}
