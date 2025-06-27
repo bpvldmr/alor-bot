@@ -2,12 +2,11 @@ import asyncio
 import os
 from fastapi import FastAPI, Request
 from loguru import logger
-
 from webhook import router as webhook_router
 from balance import router as balance_router
 from auth import get_access_token
 from telegram_logger import send_telegram_log
-from trading import handle_signal  # ⬅️ Добавил импорт
+from trading import handle_signal  # ⬅️ Обработка сигналов
 
 app = FastAPI()
 
@@ -42,20 +41,6 @@ async def on_startup():
         logger.error(f"❌ Ошибка запуска token_refresher: {e}")
         try:
             await send_telegram_log(f"❌ Ошибка запуска token_refresher:\n{e}")
-        except:
-            pass
-
-    try:
-        scheduler.start()
-        logger.info("📅 Планировщик уведомлений запущен")
-        try:
-            await send_telegram_log("📅 Планировщик уведомлений запущен")
-        except:
-            pass
-    except Exception as e:
-        logger.error(f"❌ Ошибка запуска планировщика: {e}")
-        try:
-            await send_telegram_log(f"❌ Ошибка запуска планировщика:\n{e}")
         except:
             pass
 
