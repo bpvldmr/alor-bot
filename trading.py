@@ -5,7 +5,7 @@ from telegram_logger import send_telegram_log
 from config import TICKER_MAP, START_QTY, ADD_QTY, MAX_QTY
 from auth import get_current_balance
 from alor import place_order
-from trade_logger import log_trade_result  # ✅ добавили
+from trade_logger import log_trade_result
 
 current_positions = {v["trade"]: 0 for v in TICKER_MAP.values()}
 entry_prices = {}
@@ -55,7 +55,6 @@ async def execute_market_order(ticker: str, side: str, qty: int):
     order_id = res.get("order_id", "—")
     await send_telegram_log(f"✅ {side}/{ticker}/{qty} исполнена @ {price:.2f} ₽ (ID {order_id})")
     return price
-
 
 async def close_position(ticker: str):
     global total_profit, initial_balance, last_balance, total_deposit, total_withdrawal
@@ -109,7 +108,7 @@ async def close_position(ticker: str):
         roi=roi
     )
 
-# ✅ Переименовано для удобства импорта
+# ✅ Основная функция обработки сигнала TradingView
 async def process_signal(tv_tkr: str, sig: str):
     if is_weekend():
         await send_telegram_log(f"⛔ Weekend — пропускаем {sig} по {tv_tkr}")
