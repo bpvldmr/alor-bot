@@ -1,6 +1,5 @@
 from fastapi import FastAPI, APIRouter, Request
 from trading import process_signal
-from scheduler import scheduler  # ✅ подключаем планировщик
 from loguru import logger
 
 app = FastAPI()
