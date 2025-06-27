@@ -16,26 +16,28 @@ async def place_order(order: dict):
     }
 
     payload = {
-        "side": order["side"].upper(),  # ✅ убедись, что "BUY"/"SELL"
-        "quantity": int(order["qty"]),  # ✅ гарантированно int
+        "side": order["side"].upper(),  # ✅ "BUY" или "SELL"
+        "quantity": int(order["qty"]),  # ✅ целое число
         "instrument": {
-            "symbol": order["instrument"],  # ✅ должен быть типа "NGN5", "CRU5"
+            "symbol": order["instrument"],        # ✅ "NGN5", "CRU5", без "MOEX:"
             "exchange": "MOEX",
-            "instrumentGroup": "FUT"
+            "instrumentGroup": "FUT"              # ✅ для фьючерсов
         },
-        "comment": "ALGO BOT",
+        "comment": "ALGO BOT",                    # 💬 кастомный комментарий
         "user": {
-            "portfolio": ACCOUNT_ID
+            "portfolio": ACCOUNT_ID               # ✅ твой торговый счёт
         },
-        "timeInForce": "day",
-        "allowMargin": False
+        "type": "market",                         # ✅ обязательный параметр: тип заявки
+        "timeInForce": "day",                     # ✅ заявка действует сегодня
+        "allowMargin": False                      # ❌ без маржи
     }
 
-    # ✅ ЛОГ ПЕРЕД ОТПРАВКОЙ
+    # 🔍 Лог перед отправкой
     await send_telegram_log(
         f"📤 Отправка рыночной заявки:\n"
-        f"🔗 URL: `{url}`\n"
-        f"📦 Payload:\n```json\n{payload}\n```"
+        f"📈 Тикер: `{order['instrument']}`\n"
+        f"📊 Сторона: `{order['side'].upper()}` | Объём: `{order['qty']}`\n"
+        f"🔗 URL: `{url}`"
     )
 
     try:
@@ -45,8 +47,8 @@ async def place_order(order: dict):
             data = resp.json()
 
         await send_telegram_log(
-            f"✅ Успешная заявка\n"
-            f"📄 Ответ ALOR:\n```json\n{data}\n```"
+            f"✅ Успешная заявка исполнена\n"
+            f"🧾 Ответ:\n```json\n{data}\n```"
         )
 
         return {
@@ -68,5 +70,5 @@ async def place_order(order: dict):
         }
 
     except Exception as e:
-        await send_telegram_log(f"❌ Ошибка при заявке:\n{str(e)}")
+        await send_telegram_log(f"❌ Ошибка при отправке заявки:\n{str(e)}")
         return {"status": "error", "detail": str(e)}
