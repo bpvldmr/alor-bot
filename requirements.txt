@@ -3,4 +3,5 @@ uvicorn
 httpx
 loguru
 python-dotenv
+pytz
 requests
