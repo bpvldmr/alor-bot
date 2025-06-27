@@ -6,7 +6,6 @@ from loguru import logger
 from webhook import router as webhook_router
 from balance import router as balance_router
 from auth import get_access_token
-from scheduler import scheduler
 from telegram_logger import send_telegram_log
 from trading import handle_signal  # ⬅️ Добавил импорт
 
