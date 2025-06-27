@@ -9,7 +9,6 @@ from auth import get_access_token
 from telegram_logger import send_telegram_log
 from trading import process_signal
 
-
 app = FastAPI()
 
 @app.api_route("/", methods=["GET", "HEAD"])
@@ -60,7 +59,7 @@ async def on_shutdown():
 async def token_refresher():
     while True:
         try:
-            get_access_token()
+            await get_access_token()
             logger.debug("🔁 Token refreshed")
             await send_telegram_log("🔁 Access token обновлён ✅")
         except Exception as e:
