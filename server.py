@@ -6,12 +6,12 @@ from webhook import router as webhook_router
 from balance import router as balance_router
 from auth import get_access_token
 from scheduler import scheduler
-from telegram_logger import send_telegram_log  # ✅ добавим лог в телегу
+from telegram_logger import send_telegram_log  # ✅ лог в телегу
 
 app = FastAPI()
 
-# ✅ Root-эндпоинт для проверки
-@app.get("/")
+# ✅ Root-эндпоинт с поддержкой HEAD
+@app.api_route("/", methods=["GET", "HEAD"])
 async def root():
     return {"status": "ok", "message": "🚀 Alor bot is running"}
 
