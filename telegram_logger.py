@@ -11,11 +11,14 @@ async def send_telegram_log(text: str):
         logger.warning("⚠️ TELEGRAM_TOKEN или TELEGRAM_CHAT_ID не указаны")
         return
 
+    # На всякий случай принудительно приводим текст к str
+    if not isinstance(text, str):
+        text = str(text)
+
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {
         "chat_id": CHAT_ID,
-        "text": text
-        # parse_mode удалён для надёжности
+        "text": text  # Markdown отключён — безопасная отправка
     }
 
     try:
