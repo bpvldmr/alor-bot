@@ -95,4 +95,8 @@ async def token_refresher():
 # ✅ Задача удержания процесса
 async def keep_alive():
     while True:
-        await asyncio.sleep(3600)  # 1 час
+        try:
+            await send_telegram_log("🟢 keep_alive работает")
+        except:
+            pass
+        await asyncio.sleep(55)
