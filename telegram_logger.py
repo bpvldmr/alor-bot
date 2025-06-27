@@ -14,8 +14,8 @@ async def send_telegram_log(text: str):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {
         "chat_id": CHAT_ID,
-        "text": text,
-        "parse_mode": "Markdown"
+        "text": text
+        # parse_mode удалён для надёжности
     }
 
     try:
