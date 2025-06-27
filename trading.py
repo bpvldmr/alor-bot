@@ -109,7 +109,8 @@ async def close_position(ticker: str):
         roi=roi
     )
 
-async def handle_trading_signal(tv_tkr: str, sig: str):
+# ✅ Переименовано для удобства импорта
+async def process_signal(tv_tkr: str, sig: str):
     if is_weekend():
         await send_telegram_log(f"⛔ Weekend — пропускаем {sig} по {tv_tkr}")
         return {"error": "Weekend"}
@@ -169,5 +170,3 @@ async def handle_trading_signal(tv_tkr: str, sig: str):
         return {"status": "open"}
 
     return {"status": "noop"}
-
-process_signal = handle_trading_signal
