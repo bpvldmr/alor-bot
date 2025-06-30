@@ -17,7 +17,7 @@ if not all([CLIENT_ID, CLIENT_SECRET, REFRESH_TOKEN, ACCOUNT_ID]):
     raise ValueError("❌ Не найдены переменные окружения: CLIENT_ID, CLIENT_SECRET, REFRESH_TOKEN, ACCOUNT_ID")
 
 BASE_URL          = "https://api.alor.ru"
-INSTRUMENT_GROUP  = "FUT"  # Срочный рынок (фьючерсы)
+INSTRUMENT_GROUP  = "RFUD"  # Срочный рынок (фьючерсы)
 
 # ———————————————————————
 # Карта тикеров и параметры торговли
