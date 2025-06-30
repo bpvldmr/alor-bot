@@ -21,15 +21,15 @@ async def place_order(order: dict):
         "instrument": {
             "symbol": order["instrument"],        # ✅ "NGN5", "CRU5", без "MOEX:"
             "exchange": "MOEX",
-            "instrumentGroup": "FUT"              # ✅ для фьючерсов
+            "instrumentGroup": "RFUD"              # ✅ для фьючерсов
         },
         "comment": "ALGO BOT",                    # 💬 кастомный комментарий
         "user": {
             "portfolio": ACCOUNT_ID               # ✅ твой торговый счёт
         },
         "type": "market",                         # ✅ обязательный параметр: тип заявки
-        "timeInForce": "day",                     # ✅ заявка действует сегодня
-        "allowMargin": False                      # ❌ без маржи
+        "timeInForce": "oneday",                     # ✅ заявка действует сегодня
+        "allowMargin": true                      # маржа
     }
 
     # 🔍 Лог перед отправкой
