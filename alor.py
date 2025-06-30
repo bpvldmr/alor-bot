@@ -19,7 +19,7 @@ async def place_order(order: dict):
         "side": order["side"].upper(),           # ✅ "BUY" или "SELL"
         "quantity": int(order["qty"]),           # ✅ целое число
         "instrument": {
-            "symbol": order["instrument"],       # ✅ "CRU5" или "NGN5"
+            "symbol": order["symbol"],       # ✅ "CRU5" или "NGN5"
             "exchange": "MOEX",
             "instrumentGroup": "RFUD"            # ✅ для фьючерсов
         },
