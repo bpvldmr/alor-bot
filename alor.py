@@ -1,11 +1,11 @@
 import uuid
 import httpx
 from config import BASE_URL, ACCOUNT_ID
-from auth import get_access_token  # 🔧 синхронная функция
+from auth import get_access_token  # ✅ асинхронная
 from telegram_logger import send_telegram_log  # ✅ логирование
 
 async def place_order(order: dict):
-    token = get_access_token()  # ❗️без await, т.к. sync
+    token = await get_access_token()  # ✅ await обязательно!
     url = f"{BASE_URL}/commandapi/warptrans/TRADE/v2/client/orders/actions/market"
 
     headers = {
@@ -19,20 +19,19 @@ async def place_order(order: dict):
         "side": order["side"].upper(),           # ✅ "BUY" или "SELL"
         "quantity": int(order["qty"]),           # ✅ целое число
         "instrument": {
-            "symbol": order["symbol"],       # ✅ "CRU5" или "NGN5"
+            "symbol": order["symbol"],           # ✅ "CNY-9.25" или "NG-7.25"
             "exchange": "MOEX",
-            "instrumentGroup": "RFUD"            # ✅ для фьючерсов
+            "instrumentGroup": "RFUD"
         },
-        "comment": "ALGO BOT",                    # 💬 кастомный комментарий
+        "comment": "ALGO BOT",
         "user": {
-            "portfolio": ACCOUNT_ID               # ✅ твой торговый счёт
+            "portfolio": ACCOUNT_ID
         },
-        "type": "market",                         # ✅ тип заявки
-        "timeInForce": "oneday",                  # ✅ срок действия
-        "allowMargin": True                       # ✅ разрешить маржинальность
+        "type": "market",
+        "timeInForce": "oneday",
+        "allowMargin": True
     }
 
-    # 🔍 Лог перед отправкой
     await send_telegram_log(
         f"📤 Отправка рыночной заявки:\n"
         f"📈 Тикер: `{order['instrument']}`\n"
