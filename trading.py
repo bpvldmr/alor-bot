@@ -38,11 +38,20 @@ def is_trading_hours() -> bool:
     now = datetime.now(tz)
     return now.weekday() < 5 and time(9, 0) <= now.time() <= time(23, 0)
 
+def get_alor_symbol(instrument: str) -> str:
+    if instrument == "CRU5":
+        return "CNY-9.25"
+    elif instrument == "NGN5":
+        return "NG-7.25"
+    return instrument  # fallback
+
 async def execute_market_order(ticker: str, side: str, qty: int):
+    alor_symbol = get_alor_symbol(ticker)
     res = await place_order({
         "side": side.upper(),
         "qty": qty,
-        "instrument": ticker
+        "instrument": ticker,
+        "symbol": alor_symbol
     })
 
     print("📥 Order sent, got response:", res)
