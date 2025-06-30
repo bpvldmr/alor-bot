@@ -24,8 +24,8 @@ INSTRUMENT_GROUP  = "RFUD"  # Срочный рынок (фьючерсы)
 # ———————————————————————
 
 TICKER_MAP = {
-    "MOEX:CRU2025": {"trade": "CRU5"},  # фьючерс на CNY/RUB
-    "MOEX:NGN2025": {"trade": "NGN5"},  # фьючерс на газ
+    "MOEX:CRU2025": {"trade": "CRU5", "symbol": "CNY-9.25"},
+    "MOEX:NGN2025": {"trade": "NGN5", "symbol": "NG-7.25"},
 }
 
 START_QTY = {
