@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Request
 import json
 from telegram_logger import send_telegram_log
-from trading import process_signal  # ✅ Исправлено
+from trading import process_signal  # ✅ Обработка сигналов
+from auth import get_current_balance  # ✅ Добавлено для await
 
 router = APIRouter()
 
@@ -34,9 +35,19 @@ async def webhook(token: str, request: Request):
         return {"status": "invalid payload"}
 
     try:
-        result = await process_signal(ticker, action)  # ✅ Используем правильную функцию
+        result = await process_signal(ticker, action)
         await send_telegram_log(f"🔔 Result: {result}")
         return {"status": "ok", "result": result}
+
     except Exception as e:
-        await send_telegram_log(f"❌ Error in signal handler: {e}")
+        try:
+            # ✅ Попытка получить баланс в момент ошибки (если нужно для отладки)
+            balance = await get_current_balance()
+            await send_telegram_log(
+                f"❌ Error in signal handler: {e}\n📊 Баланс: {balance} ₽"
+            )
+        except Exception as be:
+            await send_telegram_log(
+                f"❌ Error in signal handler: {e}\n⚠️ Ошибка при получении баланса: {be}"
+            )
         return {"status": "error", "message": str(e)}
