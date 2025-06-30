@@ -29,7 +29,7 @@ TICKER_MAP = {
 }
 
 START_QTY = {
-    "CRU5": 4,
+    "CRU5": 1,
     "NGN5": 1
 }
 
