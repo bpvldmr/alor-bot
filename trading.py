@@ -43,7 +43,7 @@ def get_alor_symbol(instrument: str) -> str:
         return "CNY-9.25"
     elif instrument == "NGN5":
         return "NG-7.25"
-    return instrument  # fallback
+    return instrument
 
 async def execute_market_order(ticker: str, side: str, qty: int):
     alor_symbol = get_alor_symbol(ticker)
@@ -117,7 +117,6 @@ async def close_position(ticker: str):
         roi=roi
     )
 
-# ✅ Основная функция обработки сигнала TradingView
 async def process_signal(tv_tkr: str, sig: str):
     if is_weekend():
         await send_telegram_log(f"⛔ Weekend — пропускаем {sig} по {tv_tkr}")
@@ -164,7 +163,7 @@ async def process_signal(tv_tkr: str, sig: str):
             current_positions[tkr] = dir_ * sq
             entry_prices[tkr] = price
             bal = await asyncio.to_thread(get_current_balance)
-            await send_telegram_log(f"🔄 Новая {tkr}={dir_*sq:+} @ {price:.2f}, 💰 {bal:.2f} ₽")
+            await send_telegram_log(f"🔄 Новая {tkr}={dir_ * sq:+} @ {price:.2f}, 💰 {bal:.2f} ₽")
         return {"status": "flip"}
 
     if cur == 0:
@@ -174,7 +173,7 @@ async def process_signal(tv_tkr: str, sig: str):
             current_positions[tkr] = dir_ * sq
             entry_prices[tkr] = price
             bal = await asyncio.to_thread(get_current_balance)
-            await send_telegram_log(f"✅ Открыта {tkr}={dir_*sq:+} @ {price:.2f}, 💰 {bal:.2f} ₽")
+            await send_telegram_log(f"✅ Открыта {tkr}={dir_ * sq:+} @ {price:.2f}, 💰 {bal:.2f} ₽")
         return {"status": "open"}
 
     return {"status": "noop"}
