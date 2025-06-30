@@ -79,7 +79,7 @@ async def close_position(ticker: str):
 
     entry = entry_prices.get(ticker, 0)
     pnl = (fill_price - entry) * qty
-    pct = pnl / (entry * abs(qty)) * 100 if entry else 0
+    pct = (pnl / (entry * abs(qty)) * 100) if entry else 0
     current_positions[ticker] = 0
     total_profit += pnl
 
@@ -105,16 +105,13 @@ async def close_position(ticker: str):
     net_investment = initial_balance + total_deposit - total_withdrawal
     roi = (total_profit / net_investment * 100) if net_investment else 0
 
+    # Вызываем функцию логирования с корректным форматом сообщения
     await log_trade_result(
         ticker=ticker,
+        side="LONG" if qty > 0 else "SHORT",
         qty=qty,
-        price=fill_price,
-        pnl=pnl,
-        pct=pct,
-        balance=current_balance,
-        note=note,
-        total_profit=total_profit,
-        roi=roi
+        entry_price=entry,
+        exit_price=fill_price
     )
 
 async def process_signal(tv_tkr: str, sig: str):
