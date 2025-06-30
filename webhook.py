@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request
 import json
 from telegram_logger import send_telegram_log
 from trading import process_signal  # ✅ Обработка сигналов
-from auth import get_current_balance  # ✅ Добавлено для await
+from auth import get_current_balance 
 
 router = APIRouter()
 
