@@ -30,11 +30,11 @@ def build_portfolio_summary(summary: dict, profit_total: float, base_balance: fl
 
 💰 *Свободные средства:* {buying_power:,.2f} ₽
 💼 *Оценка портфеля:* {portfolio_value:,.2f} ₽
-📉 *Прибыль по позициям:* {profit_unrealized:+.2f} ₽ ({profit_rate:+.2f}%)
-📈 *Доходность:* с начала {full_yield:+.2f}%
+📉 *Нереализ. прибыль:* {profit_unrealized:+.2f} ₽ ({profit_rate:+.2f}%)
+📈 *Доходность с начала:* {full_yield:+.2f}%
 📊 *Сальдо сделок:* {profit_total:+.2f} ₽
 🕗 *Средства утром:* {morning_funds:,.2f} ₽
-💣 *Риск до принудительного закрытия:* {force_close_risk:,.2f} ₽
+💣 *Риск до маржин-колла:* {force_close_risk:,.2f} ₽
 🏦 *Маржа:* {margin1} / {margin2}
 💵 *В RUB:* {rub_funds:,.2f} ₽
 """
@@ -46,7 +46,7 @@ async def send_balance_to_telegram(summary: dict):
         report = build_portfolio_summary(
             summary,
             profit_total=total_profit,
-            base_balance=initial_balance or 1
+            base_balance=initial_balance or 1  # чтобы не было деления на 0
         )
 
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
