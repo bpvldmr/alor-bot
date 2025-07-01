@@ -14,8 +14,13 @@ def get_alor_symbol(instrument: str) -> str:
 
 # ✅ Заявка на рыночный ордер
 async def place_order(order: dict):
+    if not all(k in order for k in ("side", "qty", "instrument")):
+        await send_telegram_log("🚫 Неверный формат ордера")
+        return {"status": "error", "detail": "Bad order format"}
+
     token = await get_access_token()
     url = f"{BASE_URL}/commandapi/warptrans/TRADE/v2/client/orders/actions/market"
+    symbol = get_alor_symbol(order["instrument"])
 
     headers = {
         "Authorization": f"Bearer {token}",
@@ -28,7 +33,7 @@ async def place_order(order: dict):
         "side": order["side"].upper(),
         "quantity": int(order["qty"]),
         "instrument": {
-            "symbol": order["symbol"],
+            "symbol": symbol,
             "exchange": "MOEX",
             "instrumentGroup": "RFUD"
         },
@@ -43,7 +48,7 @@ async def place_order(order: dict):
 
     await send_telegram_log(
         f"📤 Отправка рыночной заявки:\n"
-        f"📈 Тикер: `{order['symbol']}`\n"
+        f"📈 Тикер: `{symbol}`\n"
         f"📊 Сторона: `{order['side'].upper()}` | Объём: `{order['qty']}`\n"
         f"🔗 URL: `{url}`"
     )
