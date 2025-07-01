@@ -105,7 +105,6 @@ async def close_position(ticker: str):
     net_investment = initial_balance + total_deposit - total_withdrawal
     roi = (total_profit / net_investment * 100) if net_investment else 0
 
-    # Вызываем функцию логирования с корректным форматом сообщения
     await log_trade_result(
         ticker=ticker,
         side="LONG" if qty > 0 else "SHORT",
