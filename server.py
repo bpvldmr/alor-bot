@@ -1,6 +1,5 @@
 import asyncio
-import os
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from loguru import logger
 
 from webhook import router as webhook_router
@@ -52,12 +51,6 @@ async def on_startup():
         except:
             pass
 
-    try:
-        asyncio.create_task(keep_alive())
-        logger.info("🔄 Запущен keep_alive для удержания event loop")
-    except Exception as e:
-        logger.error(f"❌ Ошибка запуска keep_alive: {e}")
-
 @app.on_event("shutdown")
 async def on_shutdown():
     logger.warning("🛑 Сервер завершает работу")
@@ -83,11 +76,3 @@ async def token_refresher():
             except:
                 pass
         await asyncio.sleep(1500)  # 25 минут
-
-# ———————————————————————
-# Фоновая задача: ping loop
-# ———————————————————————
-
-async def keep_alive():
-    while True:
-        await asyncio.sleep(55)
