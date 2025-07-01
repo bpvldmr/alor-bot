@@ -5,6 +5,14 @@ from auth import get_access_token
 from telegram_logger import send_telegram_log
 from loguru import logger
 
+# 🎯 Маппинг тикеров TradingView -> Alor
+def get_alor_symbol(instrument: str) -> str:
+    return {
+        "CRU5": "CNY-9.25",
+        "NGN5": "NG-7.25"
+    }.get(instrument, instrument)
+
+# ✅ Заявка на рыночный ордер
 async def place_order(order: dict):
     token = await get_access_token()
     url = f"{BASE_URL}/commandapi/warptrans/TRADE/v2/client/orders/actions/market"
@@ -20,7 +28,7 @@ async def place_order(order: dict):
         "side": order["side"].upper(),
         "quantity": int(order["qty"]),
         "instrument": {
-            "symbol": order["symbol"],  # ✅ Тикер вида CNY-9.25
+            "symbol": order["symbol"],
             "exchange": "MOEX",
             "instrumentGroup": "RFUD"
         },
@@ -33,7 +41,6 @@ async def place_order(order: dict):
         "allowMargin": True
     }
 
-    # ✅ Лог: тикер теперь показывает symbol, как ты хочешь
     await send_telegram_log(
         f"📤 Отправка рыночной заявки:\n"
         f"📈 Тикер: `{order['symbol']}`\n"
@@ -47,18 +54,15 @@ async def place_order(order: dict):
             resp.raise_for_status()
             data = resp.json()
 
-        if "price" not in data:
-            await send_telegram_log("⚠️ Ответ от ALOR не содержит цену исполнения (`price`)")
-
         await send_telegram_log(
             f"✅ Успешная заявка исполнена\n"
             f"🧾 Ответ:\n```json\n{data}\n```"
         )
 
         return {
-            "price": float(data.get("price") or 0),
+            "price": float(data.get("price", 0)),
             "order_id": data.get("orderNumber", "N/A"),
-            "filled": data.get("executedQuantity", int(order["qty"])),  # если будет
+            "filled": data.get("executedQuantity", int(order["qty"])),
             "status": "success"
         }
 
@@ -79,3 +83,33 @@ async def place_order(order: dict):
         logger.error(f"❌ ALOR: Ошибка при отправке заявки: {e}")
         await send_telegram_log(f"❌ Ошибка при отправке заявки:\n{str(e)}")
         return {"status": "error", "detail": str(e)}
+
+# ✅ Получение позиции по тикеру
+async def get_position_snapshot(ticker: str) -> dict:
+    symbol = get_alor_symbol(ticker)
+    token = await get_access_token()
+    url = f"{BASE_URL}/md/v2/Clients/legacy/MOEX/{ACCOUNT_ID}/positions"
+
+    headers = {
+        "Authorization": f"Bearer {token}"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            positions = response.json()
+
+        for pos in positions:
+            if pos.get("symbol") == symbol:
+                return {
+                    "qty": int(pos.get("qty", 0)),
+                    "avgPrice": float(pos.get("avgPrice", 0.0))
+                }
+
+        return {"qty": 0, "avgPrice": 0.0}
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка при получении позиции для {ticker}: {e}")
+        await send_telegram_log(f"❌ Ошибка при получении позиции для {ticker}:\n{e}")
+        return {"qty": 0, "avgPrice": 0.0}
