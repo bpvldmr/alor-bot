@@ -93,7 +93,7 @@ async def place_order(order: dict):
 async def get_position_snapshot(ticker: str) -> dict:
     symbol = get_alor_symbol(ticker)
     token = await get_access_token()
-    url = f"{BASE_URL}/md/v2/Clients/legacy/MOEX/{ACCOUNT_ID}/positions"
+    url = f"{BASE_URL}/md/v2/Clients/MOEX/{ACCOUNT_ID}/positions"  # ✅ исправленный путь
 
     headers = {
         "Authorization": f"Bearer {token}"
