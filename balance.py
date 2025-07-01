@@ -78,7 +78,7 @@ async def debug_balance():
     Возвращает полный JSON-ответ от Alor (через актуальный endpoint /summary).
     """
     token = get_access_token()
-    url = f"{BASE_URL}/md/v2/Clients/MOEX{ACCOUNT_ID}/summary"
+    url = f"{BASE_URL}/md/v2/Clients/MOEX/{ACCOUNT_ID}/summary"  # ✅ Исправлен адрес
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json"
