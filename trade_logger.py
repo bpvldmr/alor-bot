@@ -8,7 +8,7 @@ async def log_trade_result(ticker: str, side: str, qty: int, entry_price: float,
         pnl = round((exit_price - entry_price) * qty, 2)
         pct = round((pnl / (entry_price * abs(qty))) * 100, 2) if entry_price != 0 else 0
 
-        new_balance = await asyncio.to_thread(get_current_balance)
+    new_balance = await get_current_balance()
 
         emoji = "🟢" if pnl >= 0 else "🔴"
         action = "LONG" if qty > 0 else "SHORT"
