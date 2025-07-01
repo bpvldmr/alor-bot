@@ -2,7 +2,7 @@ import asyncio
 from telegram_logger import send_telegram_log
 from config import TICKER_MAP, START_QTY, ADD_QTY, MAX_QTY
 from auth import get_current_balance
-from alor import place_order
+from alor import place_order, get_position_snapshot
 from trade_logger import log_trade_result
 
 current_positions = {v["trade"]: 0 for v in TICKER_MAP.values()}
@@ -41,8 +41,17 @@ async def execute_market_order(ticker: str, side: str, qty: int):
 
     price = float(res.get("price", 0))
     order_id = res.get("order_id", "—")
-    await send_telegram_log(f"✅ {side}/{ticker}/{qty} исполнена @ {price:.2f} ₽ (ID {order_id})")
-    return price
+
+    # ⏱ Проверка позиции после исполнения
+    await asyncio.sleep(0.5)
+    snapshot = await get_position_snapshot(ticker)
+    actual_position = snapshot.get("qty", 0)
+
+    return {
+        "price": price,
+        "order_id": order_id,
+        "position": actual_position
+    }
 
 
 async def process_signal(tv_tkr: str, sig: str):
@@ -60,13 +69,16 @@ async def process_signal(tv_tkr: str, sig: str):
     # 🔁 Переворот позиции одной заявкой
     if cur * dir_ < 0:
         total_qty = abs(cur) + START_QTY[tkr]
-        price = await execute_market_order(tkr, side, total_qty)
-        if price is not None:
+        result = await execute_market_order(tkr, side, total_qty)
+        if result:
+            price = result["price"]
+            actual_position = result["position"]
+
             prev_entry = entry_prices.get(tkr, 0)
             pnl = (price - prev_entry) * cur
+            pct = (pnl / (abs(prev_entry) * abs(cur)) * 100) if prev_entry else 0
 
             current_balance = await asyncio.to_thread(get_current_balance)
-
             if initial_balance is None:
                 initial_balance = current_balance
                 last_balance = current_balance
@@ -91,11 +103,20 @@ async def process_signal(tv_tkr: str, sig: str):
                 exit_price=price
             )
 
-            current_positions[tkr] = dir_ * START_QTY[tkr]
+            current_positions[tkr] = actual_position
             entry_prices[tkr] = price
 
-            bal = await asyncio.to_thread(get_current_balance)
-            await send_telegram_log(f"🔁 Переворот {tkr}: {cur:+} → {current_positions[tkr]:+} @ {price:.2f}, 💰 {bal:.2f} ₽")
+            emoji = "🔻" if pnl < 0 else "🟢"
+            await send_telegram_log(
+                f"{emoji} Сделка завершена:\n"
+                f"Тикер: {tkr}\n"
+                f"Действие: {'LONG' if cur > 0 else 'SHORT'} → {'LONG' if dir_ > 0 else 'SHORT'}\n"
+                f"Контракты: {abs(total_qty)}\n"
+                f"Вход: {prev_entry:.2f} → Выход: {price:.2f}\n"
+                f"PnL: {pnl:+.2f} руб. ({pct:+.2f}%)\n"
+                f"Баланс: {current_balance:.2f} руб."
+            )
+
         return {"status": "flip"}
 
     # ➕ Усреднение
@@ -105,25 +126,30 @@ async def process_signal(tv_tkr: str, sig: str):
             await send_telegram_log(f"🚫 Лимит {tkr}={MAX_QTY[tkr]}, пропускаем усреднение")
             return {"status": "limit"}
 
-        price = await execute_market_order(tkr, side, ADD_QTY[tkr])
-        if price is not None:
+        result = await execute_market_order(tkr, side, ADD_QTY[tkr])
+        if result:
+            price = result["price"]
+            current_positions[tkr] = new
             entry_prices[tkr] = (
                 (entry_prices.get(tkr, 0) * abs(cur) + price * ADD_QTY[tkr]) / abs(new)
             )
-            current_positions[tkr] = new
             bal = await asyncio.to_thread(get_current_balance)
-            await send_telegram_log(f"➕ Усреднение {tkr}={new:+} @ {entry_prices[tkr]:.2f}, 💰 {bal:.2f} ₽")
+            await send_telegram_log(
+                f"➕ Усреднение {tkr}={new:+} @ {entry_prices[tkr]:.2f}, 💰 {bal:.2f} ₽"
+            )
         return {"status": "avg"}
 
     # ✅ Открытие новой позиции
     if cur == 0:
-        sq = START_QTY[tkr]
-        price = await execute_market_order(tkr, side, sq)
-        if price is not None:
-            current_positions[tkr] = dir_ * sq
+        result = await execute_market_order(tkr, side, START_QTY[tkr])
+        if result:
+            price = result["price"]
+            current_positions[tkr] = dir_ * START_QTY[tkr]
             entry_prices[tkr] = price
             bal = await asyncio.to_thread(get_current_balance)
-            await send_telegram_log(f"✅ Открыта {tkr}={dir_ * sq:+} @ {price:.2f}, 💰 {bal:.2f} ₽")
+            await send_telegram_log(
+                f"✅ Открыта {tkr}={dir_ * START_QTY[tkr]:+} @ {price:.2f}, 💰 {bal:.2f} ₽"
+            )
         return {"status": "open"}
 
     return {"status": "noop"}
