@@ -1,17 +1,18 @@
 import asyncio
 import time
+import httpx
 from telegram_logger import send_telegram_log
 from config import TICKER_MAP, START_QTY, ADD_QTY, MAX_QTY, BASE_URL, ACCOUNT_ID
 from auth import get_current_balance, get_access_token
 from alor import place_order, get_position_snapshot
 from trade_logger import log_trade_result
 from balance import send_balance_to_telegram
-import httpx
 
 current_positions = {v["trade"]: 0 for v in TICKER_MAP.values()}
 entry_prices = {}
 last_signals = {}
 
+# Глобальные переменные для анализа
 initial_balance = None
 last_balance = None
 total_profit = 0
@@ -169,3 +170,7 @@ async def process_signal(tv_tkr: str, sig: str):
         return {"status": "open"}
 
     return {"status": "noop"}
+
+
+# Экспортируем для balance.py
+__all__ = ["total_profit", "initial_balance"]
