@@ -1,6 +1,4 @@
 import asyncio
-from datetime import datetime, time
-import pytz
 from telegram_logger import send_telegram_log
 from config import TICKER_MAP, START_QTY, ADD_QTY, MAX_QTY
 from auth import get_current_balance
@@ -16,27 +14,6 @@ last_balance = None
 total_profit = 0
 total_deposit = 0
 total_withdrawal = 0
-
-# Флаг активности торговли
-trading_enabled = True
-
-async def enable_trading():
-    global trading_enabled
-    trading_enabled = True
-    await send_telegram_log("✅ Торговля включена")
-
-async def disable_trading():
-    global trading_enabled
-    trading_enabled = False
-    await send_telegram_log("⛔ Торговля отключена")
-
-def is_weekend() -> bool:
-    return datetime.utcnow().weekday() in (5, 6)
-
-def is_trading_hours() -> bool:
-    tz = pytz.timezone("Europe/Moscow")
-    now = datetime.now(tz)
-    return now.weekday() < 5 and time(9, 0) <= now.time() <= time(23, 0)
 
 def get_alor_symbol(instrument: str) -> str:
     if instrument == "CRU5":
@@ -94,12 +71,8 @@ async def close_position(ticker: str):
 
     if diff > 10:
         total_deposit += diff
-        note = f"🟢 Ввод средств: +{diff:.2f} ₽"
     elif diff < -10:
         total_withdrawal += abs(diff)
-        note = f"🔴 Вывод средств: -{abs(diff):.2f} ₽"
-    else:
-        note = "—"
 
     last_balance = current_balance
     net_investment = initial_balance + total_deposit - total_withdrawal
@@ -114,18 +87,6 @@ async def close_position(ticker: str):
     )
 
 async def process_signal(tv_tkr: str, sig: str):
-    if is_weekend():
-        await send_telegram_log(f"⛔ Weekend — пропускаем {sig} по {tv_tkr}")
-        return {"error": "Weekend"}
-
-    if not is_trading_hours():
-        await send_telegram_log(f"⏰ Вне торговых часов — пропускаем {sig} по {tv_tkr}")
-        return {"error": "Out of trading hours"}
-
-    if not trading_enabled:
-        await send_telegram_log(f"⏸️ Торговля выключена — сигнал {sig} по {tv_tkr} проигнорирован")
-        return {"error": "Trading is disabled"}
-
     if tv_tkr not in TICKER_MAP:
         await send_telegram_log(f"⚠️ Неизвестный тикер {tv_tkr}")
         return {"error": "Unknown ticker"}
