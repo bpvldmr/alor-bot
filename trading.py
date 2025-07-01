@@ -1,10 +1,12 @@
 import asyncio
 import time
 from telegram_logger import send_telegram_log
-from config import TICKER_MAP, START_QTY, ADD_QTY, MAX_QTY
-from auth import get_current_balance
+from config import TICKER_MAP, START_QTY, ADD_QTY, MAX_QTY, BASE_URL, ACCOUNT_ID
+from auth import get_current_balance, get_access_token
 from alor import place_order, get_position_snapshot
 from trade_logger import log_trade_result
+from balance import send_balance_to_telegram
+import httpx
 
 current_positions = {v["trade"]: 0 for v in TICKER_MAP.values()}
 entry_prices = {}
@@ -19,6 +21,19 @@ total_withdrawal = 0
 
 def get_alor_symbol(instrument: str) -> str:
     return {"CRU5": "CNY-9.25", "NGN5": "NG-7.25"}.get(instrument, instrument)
+
+
+async def get_account_summary():
+    token = await get_access_token()
+    url = f"{BASE_URL}/md/v2/Clients/MOEX/{ACCOUNT_ID}/summary"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json"
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(url, headers=headers)
+        resp.raise_for_status()
+        return resp.json()
 
 
 async def execute_market_order(ticker: str, side: str, qty: int):
@@ -59,7 +74,6 @@ async def process_signal(tv_tkr: str, sig: str):
     side = "buy" if dir_ > 0 else "sell"
     cur = current_positions.get(tkr, 0)
 
-    # ⏱ Игнорируем повторные сигналы в течение 10 минут
     now = time.time()
     last_entry = last_signals.get(tkr)
     if last_entry and last_entry[1] == dir_ and now - last_entry[0] < 600:
@@ -67,7 +81,7 @@ async def process_signal(tv_tkr: str, sig: str):
         return {"status": "ignored"}
     last_signals[tkr] = (now, dir_)
 
-    # 🔁 Переворот позиции
+    # 🔁 Переворот
     if cur * dir_ < 0:
         total_qty = abs(cur) + START_QTY[tkr]
         result = await execute_market_order(tkr, side, total_qty)
@@ -91,7 +105,6 @@ async def process_signal(tv_tkr: str, sig: str):
                 total_withdrawal += abs(diff)
 
             last_balance = current_balance
-            net_investment = initial_balance + total_deposit - total_withdrawal
             total_profit += pnl
 
             await log_trade_result(
@@ -114,6 +127,10 @@ async def process_signal(tv_tkr: str, sig: str):
                 f"PnL: {pnl:+.2f} руб. ({pct:+.2f}%)\n"
                 f"Баланс: {current_balance:.2f} руб."
             )
+
+            summary = await get_account_summary()
+            await send_balance_to_telegram(summary)
+
         return {"status": "flip"}
 
     # ➕ Усреднение
@@ -132,9 +149,13 @@ async def process_signal(tv_tkr: str, sig: str):
             current_positions[tkr] = new
             bal = await get_current_balance()
             await send_telegram_log(f"➕ Усреднение {tkr}={new:+} @ {entry_prices[tkr]:.2f}, 💰 {bal:.2f} ₽")
+
+            summary = await get_account_summary()
+            await send_balance_to_telegram(summary)
+
         return {"status": "avg"}
 
-    # ✅ Открытие новой позиции
+    # ✅ Открытие
     if cur == 0:
         result = await execute_market_order(tkr, side, START_QTY[tkr])
         if result:
@@ -143,6 +164,10 @@ async def process_signal(tv_tkr: str, sig: str):
             entry_prices[tkr] = price
             bal = await get_current_balance()
             await send_telegram_log(f"✅ Открыта {tkr}={dir_ * START_QTY[tkr]:+} @ {price:.2f}, 💰 {bal:.2f} ₽")
+
+            summary = await get_account_summary()
+            await send_balance_to_telegram(summary)
+
         return {"status": "open"}
 
     return {"status": "noop"}
