@@ -45,52 +45,9 @@ async def execute_market_order(ticker: str, side: str, qty: int):
     return price
 
 
-async def close_position(ticker: str):
+async def process_signal(tv_tkr: str, sig: str):
     global total_profit, initial_balance, last_balance, total_deposit, total_withdrawal
 
-    qty = current_positions.get(ticker, 0)
-    if qty == 0:
-        return
-
-    side = "sell" if qty > 0 else "buy"
-    fill_price = await execute_market_order(ticker, side, abs(qty))
-    if fill_price is None:
-        return
-
-    entry = entry_prices.get(ticker, 0)
-    pnl = (fill_price - entry) * qty
-    pct = (pnl / (entry * abs(qty)) * 100) if entry else 0
-    current_positions[ticker] = 0
-    total_profit += pnl
-
-    current_balance = await asyncio.to_thread(get_current_balance)
-
-    if initial_balance is None:
-        initial_balance = current_balance
-        last_balance = current_balance
-
-    theoretical_balance = last_balance + pnl
-    diff = round(current_balance - theoretical_balance, 2)
-
-    if diff > 10:
-        total_deposit += diff
-    elif diff < -10:
-        total_withdrawal += abs(diff)
-
-    last_balance = current_balance
-    net_investment = initial_balance + total_deposit - total_withdrawal
-    roi = (total_profit / net_investment * 100) if net_investment else 0
-
-    await log_trade_result(
-        ticker=ticker,
-        side="LONG" if qty > 0 else "SHORT",
-        qty=qty,
-        entry_price=entry,
-        exit_price=fill_price
-    )
-
-
-async def process_signal(tv_tkr: str, sig: str):
     if tv_tkr not in TICKER_MAP:
         await send_telegram_log(f"⚠️ Неизвестный тикер {tv_tkr}")
         return {"error": "Unknown ticker"}
@@ -100,18 +57,45 @@ async def process_signal(tv_tkr: str, sig: str):
     side = "buy" if sig.upper() == "LONG" else "sell"
     cur = current_positions.get(tkr, 0)
 
-    # 🔁 Переворот позиции
+    # 🔁 Переворот позиции одной заявкой
     if cur * dir_ < 0:
-        await close_position(tkr)
-        await asyncio.sleep(0.5)  # Небольшая пауза для гарантии обработки ALOR
-
-        sq = START_QTY[tkr]
-        price = await execute_market_order(tkr, side, sq)
+        total_qty = abs(cur) + START_QTY[tkr]
+        price = await execute_market_order(tkr, side, total_qty)
         if price is not None:
-            current_positions[tkr] = dir_ * sq
+            prev_entry = entry_prices.get(tkr, 0)
+            pnl = (price - prev_entry) * cur
+
+            current_balance = await asyncio.to_thread(get_current_balance)
+
+            if initial_balance is None:
+                initial_balance = current_balance
+                last_balance = current_balance
+
+            theoretical_balance = last_balance + pnl
+            diff = round(current_balance - theoretical_balance, 2)
+
+            if diff > 10:
+                total_deposit += diff
+            elif diff < -10:
+                total_withdrawal += abs(diff)
+
+            last_balance = current_balance
+            net_investment = initial_balance + total_deposit - total_withdrawal
+            total_profit += pnl
+
+            await log_trade_result(
+                ticker=tkr,
+                side="LONG" if cur > 0 else "SHORT",
+                qty=cur,
+                entry_price=prev_entry,
+                exit_price=price
+            )
+
+            current_positions[tkr] = dir_ * START_QTY[tkr]
             entry_prices[tkr] = price
+
             bal = await asyncio.to_thread(get_current_balance)
-            await send_telegram_log(f"🔄 Переворот {tkr}={dir_ * sq:+} @ {price:.2f}, 💰 {bal:.2f} ₽")
+            await send_telegram_log(f"🔁 Переворот {tkr}: {cur:+} → {current_positions[tkr]:+} @ {price:.2f}, 💰 {bal:.2f} ₽")
         return {"status": "flip"}
 
     # ➕ Усреднение
