@@ -4,7 +4,6 @@ import asyncio
 import httpx
 from loguru import logger
 
-# Константы
 BASE_URL = "https://api.alor.ru"
 AUTH_URL = "https://oauth.alor.ru"
 
@@ -13,7 +12,6 @@ CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
 ACCOUNT_ID    = os.getenv("ACCOUNT_ID")
 
-# Кеш токена
 _token_cache = None
 _token_expires_at = 0
 
@@ -30,14 +28,21 @@ async def get_access_token() -> str:
         js = resp.json()
 
     _token_cache = js["AccessToken"]
-    _token_expires_at = time.time() + 25 * 60  # 25 минут
+    _token_expires_at = time.time() + 25 * 60
     logger.debug("🔑 Access token refreshed")
     return _token_cache
 
-async def get_current_balance() -> float:
+async def get_headers() -> dict:
     token = await get_access_token()
+    return {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
+
+async def get_current_balance() -> float:
+    headers = await get_headers()
     url = f"{BASE_URL}/md/v2/Clients/legacy/MOEX/{ACCOUNT_ID}/money?format=Simple"
-    headers = {"Authorization": f"Bearer {token}"}
 
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(url, headers=headers)
