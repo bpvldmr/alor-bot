@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from auth import get_access_token
-import httpx
+from trading import total_profit, initial_balance
 from loguru import logger
+import httpx
 
 router = APIRouter()
 
@@ -10,27 +11,51 @@ ACCOUNT_ID = "7502QAB"
 TELEGRAM_TOKEN = "7610150119:AAGMzDYUdcI6QQuvt-Vsg8U4s1VSYarLIe0"
 CHAT_ID = "205721225"
 
-async def send_balance_to_telegram(summary: dict):
-    message = f"""📊 *Сводка по счёту {ACCOUNT_ID}*
 
-💰 *Свободные средства:* {summary.get("buyingPower", 0):,.2f} ₽
-💼 *Оценка портфеля:* {summary.get("portfolioEvaluation", 0):,.2f} ₽
-📉 *Прибыль:* {summary.get("profit", 0):,.2f} ₽
-📉 *Доходность:* {summary.get("profitRate", 0):.2f}%
-🕗 *Средства утром:* {summary.get("buyingPowerAtMorning", 0):,.2f} ₽
-💣 *Риск до принудительного закрытия:* {summary.get("riskBeforeForcePositionClosing", 0):,.2f} ₽
-🏦 *Маржа:* {summary.get("initialMargin", 0)} / {summary.get("correctedMargin", 0)}
-💵 *В RUB:* {summary.get("buyingPowerByCurrency", [{}])[0].get("buyingPower", 0):,.2f} ₽
+def build_portfolio_summary(summary: dict, profit_total: float, base_balance: float) -> str:
+    buying_power = summary.get("buyingPower", 0)
+    portfolio_value = summary.get("portfolioEvaluation", 0)
+    profit_unrealized = summary.get("profit", 0)
+    profit_rate = summary.get("profitRate", 0)
+    morning_funds = summary.get("buyingPowerAtMorning", 0)
+    force_close_risk = summary.get("riskBeforeForcePositionClosing", 0)
+    margin1 = summary.get("initialMargin", 0)
+    margin2 = summary.get("correctedMargin", 0)
+    rub_funds = summary.get("buyingPowerByCurrency", [{}])[0].get("buyingPower", 0)
+
+    # Защита от деления на ноль
+    full_yield = (profit_total / base_balance) * 100 if base_balance else 0
+
+    report = f"""💼 *Сводка по счёту {ACCOUNT_ID}*
+
+💰 *Свободные средства:* {buying_power:,.2f} ₽
+💼 *Оценка портфеля:* {portfolio_value:,.2f} ₽
+📉 *Прибыль по позициям:* {profit_unrealized:+.2f} ₽ ({profit_rate:+.2f}%)
+📈 *Доходность:* с начала {full_yield:+.2f}%
+📊 *Сальдо сделок:* {profit_total:+.2f} ₽
+🕗 *Средства утром:* {morning_funds:,.2f} ₽
+💣 *Риск до принудительного закрытия:* {force_close_risk:,.2f} ₽
+🏦 *Маржа:* {margin1} / {margin2}
+💵 *В RUB:* {rub_funds:,.2f} ₽
 """
+    return report
 
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": CHAT_ID,
-        "text": message,
-        "parse_mode": "Markdown"
-    }
 
+async def send_balance_to_telegram(summary: dict):
     try:
+        report = build_portfolio_summary(
+            summary,
+            profit_total=total_profit,
+            base_balance=initial_balance or 1
+        )
+
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": CHAT_ID,
+            "text": report,
+            "parse_mode": "Markdown"
+        }
+
         async with httpx.AsyncClient() as client:
             response = await client.post(url, json=payload)
             response.raise_for_status()
@@ -38,30 +63,22 @@ async def send_balance_to_telegram(summary: dict):
     except Exception as e:
         logger.exception("❌ Ошибка при отправке баланса в Telegram")
 
+
 @router.get("/balance")
 async def get_balance():
-    """
-    Возвращает доступный к выводу баланс по счёту ALOR (через актуальный endpoint /summary).
-    Также отправляет сводку в Telegram.
-    """
-    token = get_access_token()
+    token = await get_access_token()
     url = f"{BASE_URL}/md/v2/Clients/MOEX/{ACCOUNT_ID}/summary"
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json"
     }
 
-    logger.debug(f"📡 URL: {url}")
-    logger.debug(f"🔐 Token: {token[:20]}...")
-
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(url, headers=headers)
             resp.raise_for_status()
             data = resp.json()
-            logger.debug(f"📊 Ответ от Alor: {data}")
     except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP ошибка: {e.response.status_code}")
         raise HTTPException(status_code=502, detail=f"Ошибка запроса: {e.response.status_code}")
     except Exception as e:
         logger.exception("Ошибка при получении баланса")
@@ -74,28 +91,19 @@ async def get_balance():
 
 @router.get("/debug_balance")
 async def debug_balance():
-    """
-    Возвращает полный JSON-ответ от Alor (через актуальный endpoint /summary).
-    """
-    token = get_access_token()
-    url = f"{BASE_URL}/md/v2/Clients/MOEX/{ACCOUNT_ID}/summary"  # ✅ Исправлен адрес
+    token = await get_access_token()
+    url = f"{BASE_URL}/md/v2/Clients/MOEX/{ACCOUNT_ID}/summary"
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json"
     }
 
-    logger.debug(f"🐞 Debug URL: {url}")
-    logger.debug(f"🔐 Token: {token[:20]}...")
-
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(url, headers=headers)
             resp.raise_for_status()
-            data = resp.json()
-            logger.debug(f"🐞 Debug response: {data}")
-            return data
+            return resp.json()
     except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP ошибка: {e.response.status_code}")
         raise HTTPException(status_code=502, detail=f"Ошибка запроса: {e.response.status_code}")
     except Exception as e:
         logger.exception("Ошибка при отладке запроса")
