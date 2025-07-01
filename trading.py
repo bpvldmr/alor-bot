@@ -67,7 +67,7 @@ async def process_signal(tv_tkr: str, sig: str):
         return {"status": "ignored"}
     last_signals[tkr] = (now, dir_)
 
-    # 🔁 Переворот позиции одной заявкой
+    # 🔁 Переворот позиции
     if cur * dir_ < 0:
         total_qty = abs(cur) + START_QTY[tkr]
         result = await execute_market_order(tkr, side, total_qty)
@@ -78,7 +78,7 @@ async def process_signal(tv_tkr: str, sig: str):
             pnl = (price - prev_entry) * cur
             pct = (pnl / (abs(prev_entry) * abs(cur)) * 100) if prev_entry else 0
 
-            current_balance = await asyncio.to_thread(get_current_balance)
+            current_balance = await get_current_balance()
             if initial_balance is None:
                 initial_balance = current_balance
                 last_balance = current_balance
@@ -130,7 +130,7 @@ async def process_signal(tv_tkr: str, sig: str):
                 (entry_prices.get(tkr, 0) * abs(cur) + price * ADD_QTY[tkr]) / abs(new)
             )
             current_positions[tkr] = new
-            bal = await asyncio.to_thread(get_current_balance)
+            bal = await get_current_balance()
             await send_telegram_log(f"➕ Усреднение {tkr}={new:+} @ {entry_prices[tkr]:.2f}, 💰 {bal:.2f} ₽")
         return {"status": "avg"}
 
@@ -141,7 +141,7 @@ async def process_signal(tv_tkr: str, sig: str):
             price = result["price"]
             current_positions[tkr] = dir_ * START_QTY[tkr]
             entry_prices[tkr] = price
-            bal = await asyncio.to_thread(get_current_balance)
+            bal = await get_current_balance()
             await send_telegram_log(f"✅ Открыта {tkr}={dir_ * START_QTY[tkr]:+} @ {price:.2f}, 💰 {bal:.2f} ₽")
         return {"status": "open"}
 
