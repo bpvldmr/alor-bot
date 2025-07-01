@@ -15,12 +15,14 @@ total_profit = 0
 total_deposit = 0
 total_withdrawal = 0
 
+
 def get_alor_symbol(instrument: str) -> str:
     if instrument == "CRU5":
         return "CNY-9.25"
     elif instrument == "NGN5":
         return "NG-7.25"
     return instrument
+
 
 async def execute_market_order(ticker: str, side: str, qty: int):
     alor_symbol = get_alor_symbol(ticker)
@@ -41,6 +43,7 @@ async def execute_market_order(ticker: str, side: str, qty: int):
     order_id = res.get("order_id", "—")
     await send_telegram_log(f"✅ {side}/{ticker}/{qty} исполнена @ {price:.2f} ₽ (ID {order_id})")
     return price
+
 
 async def close_position(ticker: str):
     global total_profit, initial_balance, last_balance, total_deposit, total_withdrawal
@@ -86,6 +89,7 @@ async def close_position(ticker: str):
         exit_price=fill_price
     )
 
+
 async def process_signal(tv_tkr: str, sig: str):
     if tv_tkr not in TICKER_MAP:
         await send_telegram_log(f"⚠️ Неизвестный тикер {tv_tkr}")
@@ -96,6 +100,21 @@ async def process_signal(tv_tkr: str, sig: str):
     side = "buy" if sig.upper() == "LONG" else "sell"
     cur = current_positions.get(tkr, 0)
 
+    # 🔁 Переворот позиции
+    if cur * dir_ < 0:
+        await close_position(tkr)
+        await asyncio.sleep(0.5)  # Небольшая пауза для гарантии обработки ALOR
+
+        sq = START_QTY[tkr]
+        price = await execute_market_order(tkr, side, sq)
+        if price is not None:
+            current_positions[tkr] = dir_ * sq
+            entry_prices[tkr] = price
+            bal = await asyncio.to_thread(get_current_balance)
+            await send_telegram_log(f"🔄 Переворот {tkr}={dir_ * sq:+} @ {price:.2f}, 💰 {bal:.2f} ₽")
+        return {"status": "flip"}
+
+    # ➕ Усреднение
     if cur * dir_ > 0:
         new = cur + ADD_QTY[tkr]
         if abs(new) > MAX_QTY[tkr]:
@@ -112,17 +131,7 @@ async def process_signal(tv_tkr: str, sig: str):
             await send_telegram_log(f"➕ Усреднение {tkr}={new:+} @ {entry_prices[tkr]:.2f}, 💰 {bal:.2f} ₽")
         return {"status": "avg"}
 
-    if cur * dir_ < 0:
-        await close_position(tkr)
-        sq = START_QTY[tkr]
-        price = await execute_market_order(tkr, side, sq)
-        if price is not None:
-            current_positions[tkr] = dir_ * sq
-            entry_prices[tkr] = price
-            bal = await asyncio.to_thread(get_current_balance)
-            await send_telegram_log(f"🔄 Новая {tkr}={dir_ * sq:+} @ {price:.2f}, 💰 {bal:.2f} ₽")
-        return {"status": "flip"}
-
+    # ✅ Открытие новой позиции
     if cur == 0:
         sq = START_QTY[tkr]
         price = await execute_market_order(tkr, side, sq)
