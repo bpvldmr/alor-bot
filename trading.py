@@ -10,7 +10,7 @@ import httpx
 
 current_positions = {v["trade"]: 0 for v in TICKER_MAP.values()}
 entry_prices = {}
-last_signals = {}  # tkr -> (timestamp, direction)
+last_signals = {}
 
 initial_balance = None
 last_balance = None
@@ -51,7 +51,7 @@ async def execute_market_order(ticker: str, side: str, qty: int):
         await send_telegram_log(f"❌ {side}/{ticker}/{qty}: {res['error']}")
         return None
 
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(1.5)
     snapshot = await get_position_snapshot(ticker)
     actual_position = snapshot.get("qty", 0)
 
@@ -147,8 +147,7 @@ async def process_signal(tv_tkr: str, sig: str):
                 (entry_prices.get(tkr, 0) * abs(cur) + price * ADD_QTY[tkr]) / abs(new)
             )
             current_positions[tkr] = new
-            bal = await get_current_balance()
-            await send_telegram_log(f"➕ Усреднение {tkr}={new:+} @ {entry_prices[tkr]:.2f}, 💰 {bal:.2f} ₽")
+            await send_telegram_log(f"➕ Усреднение {tkr}={new:+} @ {entry_prices[tkr]:.2f}")
 
             summary = await get_account_summary()
             await send_balance_to_telegram(summary)
@@ -162,8 +161,7 @@ async def process_signal(tv_tkr: str, sig: str):
             price = result["price"]
             current_positions[tkr] = dir_ * START_QTY[tkr]
             entry_prices[tkr] = price
-            bal = await get_current_balance()
-            await send_telegram_log(f"✅ Открыта {tkr}={dir_ * START_QTY[tkr]:+} @ {price:.2f}, 💰 {bal:.2f} ₽")
+            await send_telegram_log(f"✅ Открыта {tkr}={dir_ * START_QTY[tkr]:+} @ {price:.2f}")
 
             summary = await get_account_summary()
             await send_balance_to_telegram(summary)
