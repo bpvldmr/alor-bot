@@ -48,10 +48,10 @@ async def execute_market_order(ticker: str, side: str, qty: int):
         await send_telegram_log(f"❌ {side}/{ticker}/{qty}: {res['error']}")
         return None
 
-    await asyncio.sleep(2)  # подождать перед получением трейдов
+    await asyncio.sleep(2)
     last_trade_price = await get_last_trade_price(ticker)
 
-    await asyncio.sleep(30)  # ожидание перед получением позиции и баланса
+    await asyncio.sleep(30)
     snapshot = await get_position_snapshot(ticker)
     actual_position = snapshot.get("qty", 0)
 
@@ -72,7 +72,6 @@ async def process_signal(tv_tkr: str, sig: str):
     dir_ = 1 if sig.upper() == "LONG" else -1
     side = "buy" if dir_ > 0 else "sell"
 
-    # Перед сделкой получить актуальную позицию
     positions_snapshot = await get_current_positions()
     cur = positions_snapshot.get(tkr, 0)
     current_positions[tkr] = cur
@@ -85,8 +84,12 @@ async def process_signal(tv_tkr: str, sig: str):
 
     last_signals[tkr] = (now, dir_)
 
-    # Переворот
+    # 🔁 Переворот
     if cur * dir_ < 0:
+        # 🔄 Получаем реальную позицию заново
+        fresh_positions = await get_current_positions()
+        cur = fresh_positions.get(tkr, cur)
+
         total_qty = abs(cur) + START_QTY[tkr]
         result = await execute_market_order(tkr, side, total_qty)
         if result:
@@ -137,7 +140,7 @@ async def process_signal(tv_tkr: str, sig: str):
 
         return {"status": "flip"}
 
-    # Усреднение
+    # ➕ Усреднение
     if cur * dir_ > 0:
         new = cur + ADD_QTY[tkr]
         if abs(new) > MAX_QTY[tkr]:
@@ -158,7 +161,7 @@ async def process_signal(tv_tkr: str, sig: str):
 
         return {"status": "avg"}
 
-    # Открытие
+    # ✅ Открытие
     if cur == 0:
         result = await execute_market_order(tkr, side, START_QTY[tkr])
         if result:
