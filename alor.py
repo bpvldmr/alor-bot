@@ -105,30 +105,7 @@ async def get_position_snapshot(ticker: str) -> dict:
         logger.exception("Ошибка get_position_snapshot")
         return {"qty": 0, "avgPrice": 0.0}
 
-# ✅ Получение последней цены из сделки
-async def get_last_trade_price(ticker: str) -> float:
-    symbol = get_alor_symbol(ticker)
-    token = await get_access_token()
-    url = f"{BASE_URL}/md/v2/Securities/MOEX/{symbol}/trades/recent"
-
-    headers = {
-        "Authorization": f"Bearer {token}"
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(url, headers=headers)
-            response.raise_for_status()
-            trades = response.json()
-            if trades:
-                return float(trades[0]["price"])
-            return 0.0
-    except Exception as e:
-        await send_telegram_log(f"❌ Ошибка получения трейда для {ticker}:\n{e}")
-        logger.exception("Ошибка get_last_trade_price")
-        return 0.0
-
-# ✅ Получение всех текущих позиций (для расчёта позиции перед входом)
+# ✅ Получение всех текущих позиций
 async def get_current_positions() -> dict:
     token = await get_access_token()
     url = f"{BASE_URL}/md/v2/Clients/MOEX/{ACCOUNT_ID}/positions"
