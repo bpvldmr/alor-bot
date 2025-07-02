@@ -18,7 +18,7 @@ total_profit = 0
 total_deposit = 0
 total_withdrawal = 0
 
-SIGNAL_COOLDOWN_SECONDS = 3600  # Ограничение на повторный сигнал (1 час)
+SIGNAL_COOLDOWN_SECONDS = 3600  # 1 час только на RSI сигналы
 
 def get_alor_symbol(instrument: str) -> str:
     return {"CRU5": "CNY-9.25", "NGN5": "NG-7.25"}.get(instrument, instrument)
@@ -68,24 +68,23 @@ async def process_signal(tv_tkr: str, sig: str):
         return {"error": "Unknown ticker"}
 
     tkr = TICKER_MAP[tv_tkr]["trade"]
+    sig_upper = sig.upper()
 
-    now = time.time()
-    signal_key = f"{tkr}:{sig.upper()}"
-    last_time = last_signals.get(signal_key)
+    # Ограничение только на RSI сигналы
+    if sig_upper in ("RSI>70", "RSI<30"):
+        now = time.time()
+        signal_key = f"{tkr}:{sig_upper}"
+        last_time = last_signals.get(signal_key)
+        if last_time and now - last_time < SIGNAL_COOLDOWN_SECONDS:
+            await send_telegram_log(f"⏳ Повторный сигнал {tv_tkr}/{sig} проигнорирован (в пределах 1 часа)")
+            return {"status": "ignored"}
+        last_signals[signal_key] = now
 
-    if last_time and now - last_time < SIGNAL_COOLDOWN_SECONDS:
-        await send_telegram_log(f"⏳ Повторный сигнал {tv_tkr}/{sig} проигнорирован (в пределах 1 часа)")
-        return {"status": "ignored"}
-
-    last_signals[signal_key] = now
-
-    # 📊 Частичное закрытие по RSI
-    if sig.upper() in ("RSI>70", "RSI<30"):
         positions_snapshot = await get_current_positions()
         cur = positions_snapshot.get(tkr, 0)
         current_positions[tkr] = cur
 
-        if sig.upper() == "RSI>70" and cur > 0:
+        if sig_upper == "RSI>70" and cur > 0:
             half_qty = abs(cur) // 2
             if half_qty > 0:
                 result = await execute_market_order(tkr, "sell", half_qty)
@@ -97,7 +96,7 @@ async def process_signal(tv_tkr: str, sig: str):
                     )
             return {"status": "partial_long_close"}
 
-        elif sig.upper() == "RSI<30" and cur < 0:
+        elif sig_upper == "RSI<30" and cur < 0:
             half_qty = abs(cur) // 2
             if half_qty > 0:
                 result = await execute_market_order(tkr, "buy", half_qty)
@@ -109,14 +108,15 @@ async def process_signal(tv_tkr: str, sig: str):
                     )
             return {"status": "partial_short_close"}
 
-    dir_ = 1 if sig.upper() == "LONG" else -1
+    # Ниже: LONG / SHORT сигналы идут без ограничений
+    dir_ = 1 if sig_upper == "LONG" else -1
     side = "buy" if dir_ > 0 else "sell"
 
     positions_snapshot = await get_current_positions()
     cur = positions_snapshot.get(tkr, 0)
     current_positions[tkr] = cur
 
-    # 🔁 Переворот
+    # Переворот
     if cur * dir_ < 0:
         total_qty = abs(cur) + START_QTY[tkr]
         result = await execute_market_order(tkr, side, total_qty)
@@ -175,7 +175,7 @@ async def process_signal(tv_tkr: str, sig: str):
 
         return {"status": "flip"}
 
-    # ➕ Усреднение
+    # Усреднение
     if cur * dir_ > 0:
         new = cur + ADD_QTY[tkr]
         if abs(new) > MAX_QTY[tkr]:
@@ -196,7 +196,7 @@ async def process_signal(tv_tkr: str, sig: str):
 
         return {"status": "avg"}
 
-    # ✅ Первичное открытие
+    # Первичное открытие
     if cur == 0:
         result = await execute_market_order(tkr, side, START_QTY[tkr])
         if result:
