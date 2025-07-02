@@ -1,6 +1,6 @@
 import uuid
 import httpx
-from config import BASE_URL, ACCOUNT_ID
+from config import BASE_URL, ACCOUNT_ID, TICKER_MAP
 from auth import get_access_token
 from telegram_logger import send_telegram_log
 from loguru import logger
@@ -105,7 +105,7 @@ async def get_position_snapshot(ticker: str) -> dict:
         logger.exception("Ошибка get_position_snapshot")
         return {"qty": 0, "avgPrice": 0.0}
 
-# ✅ Получение последней цены из сделок
+# ✅ Получение последней цены из сделки
 async def get_last_trade_price(ticker: str) -> float:
     symbol = get_alor_symbol(ticker)
     token = await get_access_token()
