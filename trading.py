@@ -66,6 +66,37 @@ async def process_signal(tv_tkr: str, sig: str):
         return {"error": "Unknown ticker"}
 
     tkr = TICKER_MAP[tv_tkr]["trade"]
+
+    # 📊 Частичное закрытие по RSI
+    if sig.upper() in ("RSI>70", "RSI<30"):
+        positions_snapshot = await get_current_positions()
+        cur = positions_snapshot.get(tkr, 0)
+        current_positions[tkr] = cur
+
+        if sig.upper() == "RSI>70" and cur > 0:
+            half_qty = abs(cur) // 2
+            if half_qty > 0:
+                result = await execute_market_order(tkr, "sell", half_qty)
+                if result:
+                    current_positions[tkr] = cur - half_qty
+                    await send_telegram_log(
+                        f"📉 RSI>70: Продаём половину LONG по {tkr}\n"
+                        f"Контракты: {half_qty}\nЦена: {result['price']:.2f}"
+                    )
+            return {"status": "partial_long_close"}
+
+        elif sig.upper() == "RSI<30" and cur < 0:
+            half_qty = abs(cur) // 2
+            if half_qty > 0:
+                result = await execute_market_order(tkr, "buy", half_qty)
+                if result:
+                    current_positions[tkr] = cur + half_qty
+                    await send_telegram_log(
+                        f"📈 RSI<30: Покупаем половину SHORT по {tkr}\n"
+                        f"Контракты: {half_qty}\nЦена: {result['price']:.2f}"
+                    )
+            return {"status": "partial_short_close"}
+
     dir_ = 1 if sig.upper() == "LONG" else -1
     side = "buy" if dir_ > 0 else "sell"
 
