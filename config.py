@@ -25,7 +25,7 @@ TICKER_MAP = {
 }
 
 START_QTY = {
-    "CNY-9.25": 30,
+    "CNY-9.25": 20,
     "NG-7.25": 2
 }
 
