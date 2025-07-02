@@ -139,7 +139,7 @@ async def process_signal(tv_tkr: str, sig: str):
                 )
 
             summary = await get_account_summary()
-            await send_balance_to_telegram(summary, profit_total=total_profit, base_balance=initial_balance or 1)
+            await send_balance_to_telegram(summary, total_profit, initial_balance or 1)
 
         return {"status": "flip"}
 
@@ -160,7 +160,7 @@ async def process_signal(tv_tkr: str, sig: str):
             await send_telegram_log(f"➕ Усреднение {tkr}={new:+} @ {entry_prices[tkr]:.2f}")
 
             summary = await get_account_summary()
-            await send_balance_to_telegram(summary, profit_total=total_profit, base_balance=initial_balance or 1)
+            await send_balance_to_telegram(summary, total_profit, initial_balance or 1)
 
         return {"status": "avg"}
 
@@ -174,7 +174,7 @@ async def process_signal(tv_tkr: str, sig: str):
             await send_telegram_log(f"✅ Открыта {tkr}={dir_ * START_QTY[tkr]:+} @ {price:.2f}")
 
             summary = await get_account_summary()
-            await send_balance_to_telegram(summary, profit_total=total_profit, base_balance=initial_balance or 1)
+            await send_balance_to_telegram(summary, total_profit, initial_balance or 1)
 
         return {"status": "open"}
 
