@@ -72,6 +72,7 @@ async def process_signal(tv_tkr: str, sig: str):
     dir_ = 1 if sig.upper() == "LONG" else -1
     side = "buy" if dir_ > 0 else "sell"
 
+    # Получение актуальной позиции перед входом
     positions_snapshot = await get_current_positions()
     cur = positions_snapshot.get(tkr, 0)
     current_positions[tkr] = cur
@@ -84,12 +85,8 @@ async def process_signal(tv_tkr: str, sig: str):
 
     last_signals[tkr] = (now, dir_)
 
-    # 🔁 Переворот
+    # Переворот
     if cur * dir_ < 0:
-        # 🔄 Получаем реальную позицию заново
-        fresh_positions = await get_current_positions()
-        cur = fresh_positions.get(tkr, cur)
-
         total_qty = abs(cur) + START_QTY[tkr]
         result = await execute_market_order(tkr, side, total_qty)
         if result:
@@ -140,7 +137,7 @@ async def process_signal(tv_tkr: str, sig: str):
 
         return {"status": "flip"}
 
-    # ➕ Усреднение
+    # Усреднение
     if cur * dir_ > 0:
         new = cur + ADD_QTY[tkr]
         if abs(new) > MAX_QTY[tkr]:
@@ -161,7 +158,7 @@ async def process_signal(tv_tkr: str, sig: str):
 
         return {"status": "avg"}
 
-    # ✅ Открытие
+    # Открытие
     if cur == 0:
         result = await execute_market_order(tkr, side, START_QTY[tkr])
         if result:
