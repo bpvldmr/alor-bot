@@ -18,6 +18,8 @@ total_profit = 0
 total_deposit = 0
 total_withdrawal = 0
 
+SIGNAL_COOLDOWN_SECONDS = 3600  # Ограничение на повторный сигнал (1 час)
+
 def get_alor_symbol(instrument: str) -> str:
     return {"CRU5": "CNY-9.25", "NGN5": "NG-7.25"}.get(instrument, instrument)
 
@@ -67,6 +69,16 @@ async def process_signal(tv_tkr: str, sig: str):
 
     tkr = TICKER_MAP[tv_tkr]["trade"]
 
+    now = time.time()
+    signal_key = f"{tkr}:{sig.upper()}"
+    last_time = last_signals.get(signal_key)
+
+    if last_time and now - last_time < SIGNAL_COOLDOWN_SECONDS:
+        await send_telegram_log(f"⏳ Повторный сигнал {tv_tkr}/{sig} проигнорирован (в пределах 1 часа)")
+        return {"status": "ignored"}
+
+    last_signals[signal_key] = now
+
     # 📊 Частичное закрытие по RSI
     if sig.upper() in ("RSI>70", "RSI<30"):
         positions_snapshot = await get_current_positions()
@@ -103,14 +115,6 @@ async def process_signal(tv_tkr: str, sig: str):
     positions_snapshot = await get_current_positions()
     cur = positions_snapshot.get(tkr, 0)
     current_positions[tkr] = cur
-
-    now = time.time()
-    last_entry = last_signals.get(tkr)
-    if last_entry and last_entry[1] == dir_ and now - last_entry[0] < 600:
-        await send_telegram_log(f"⏳ Повторный сигнал {tv_tkr}/{sig} проигнорирован")
-        return {"status": "ignored"}
-
-    last_signals[tkr] = (now, dir_)
 
     # 🔁 Переворот
     if cur * dir_ < 0:
