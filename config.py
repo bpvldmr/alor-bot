@@ -29,16 +29,16 @@ TICKER_MAP = {
 }
 
 START_QTY = {
-    "CRU5": 1,
-    "NGN5": 1
+    "CRU5": 20,
+    "NGN5": 2
 }
 
 ADD_QTY = {
-    "CRU5": 1,
+    "CRU5": 2,
     "NGN5": 1
 }
 
 MAX_QTY = {
-    "CRU5": 6,
+    "CRU5": 24,
     "NGN5": 2
 }
