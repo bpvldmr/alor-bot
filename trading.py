@@ -4,7 +4,7 @@ import httpx
 from telegram_logger import send_telegram_log
 from config import TICKER_MAP, START_QTY, ADD_QTY, MAX_QTY, BASE_URL, ACCOUNT_ID
 from auth import get_current_balance, get_access_token
-from alor import place_order, get_position_snapshot, get_last_trade_price, get_current_positions
+from alor import place_order, get_position_snapshot, get_current_positions
 from trade_logger import log_trade_result
 from balance import send_balance_to_telegram
 
@@ -48,15 +48,12 @@ async def execute_market_order(ticker: str, side: str, qty: int):
         await send_telegram_log(f"❌ {side}/{ticker}/{qty}: {res['error']}")
         return None
 
-    await asyncio.sleep(2)
-    last_trade_price = await get_last_trade_price(ticker)
-
     await asyncio.sleep(30)
     snapshot = await get_position_snapshot(ticker)
     actual_position = snapshot.get("qty", 0)
 
     return {
-        "price": last_trade_price,
+        "price": res.get("price", 0.0),
         "order_id": res.get("order_id", "—"),
         "position": actual_position
     }
