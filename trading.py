@@ -44,7 +44,7 @@ async def execute_market_order(ticker: str, side: str, qty: int):
         "symbol": alor_symbol
     })
 
-    print("📥 Order sent, got response:", res)
+    print("📅 Order sent, got response:", res)
 
     if "error" in res:
         await send_telegram_log(f"❌ {side}/{ticker}/{qty}: {res['error']}")
@@ -63,6 +63,8 @@ async def execute_market_order(ticker: str, side: str, qty: int):
 async def process_signal(tv_tkr: str, sig: str):
     global total_profit, initial_balance, last_balance, total_deposit, total_withdrawal
 
+    await send_telegram_log(f"📅 Обработка сигнала: {tv_tkr} / {sig}")
+
     if tv_tkr not in TICKER_MAP:
         await send_telegram_log(f"⚠️ Неизвестный тикер {tv_tkr}")
         return {"error": "Unknown ticker"}
@@ -70,19 +72,22 @@ async def process_signal(tv_tkr: str, sig: str):
     tkr = TICKER_MAP[tv_tkr]["trade"]
     sig_upper = sig.upper()
 
-    # Ограничение только на RSI сигналы
     if sig_upper in ("RSI>70", "RSI<30"):
         now = time.time()
         signal_key = f"{tkr}:{sig_upper}"
         last_time = last_signals.get(signal_key)
         if last_time and now - last_time < SIGNAL_COOLDOWN_SECONDS:
-            await send_telegram_log(f"⏳ Повторный сигнал {tv_tkr}/{sig} проигнорирован (в пределах 1 часа)")
+            await send_telegram_log(f"⏳ Сигнал проигнорирован (cooldown): {tv_tkr}/{sig}")
             return {"status": "ignored"}
-        last_signals[signal_key] = now
 
+        last_signals[signal_key] = now
         positions_snapshot = await get_current_positions()
         cur = positions_snapshot.get(tkr, 0)
         current_positions[tkr] = cur
+
+        if cur == 0:
+            await send_telegram_log(f"⚠️ Нет открытой позиции по {tkr}, сигнал {sig} проигнорирован")
+            return {"status": "no_position"}
 
         if sig_upper == "RSI>70" and cur > 0:
             half_qty = abs(cur) // 2
@@ -108,7 +113,6 @@ async def process_signal(tv_tkr: str, sig: str):
                     )
             return {"status": "partial_short_close"}
 
-    # Ниже: LONG / SHORT сигналы идут без ограничений
     dir_ = 1 if sig_upper == "LONG" else -1
     side = "buy" if dir_ > 0 else "sell"
 
@@ -116,8 +120,8 @@ async def process_signal(tv_tkr: str, sig: str):
     cur = positions_snapshot.get(tkr, 0)
     current_positions[tkr] = cur
 
-    # Переворот
     if cur * dir_ < 0:
+        await send_telegram_log(f"🔄 Переворот: {tkr}, сигнал {sig_upper}, позиция {cur}")
         total_qty = abs(cur) + START_QTY[tkr]
         result = await execute_market_order(tkr, side, total_qty)
         if result:
@@ -165,9 +169,9 @@ async def process_signal(tv_tkr: str, sig: str):
                 )
             else:
                 await send_telegram_log(
-                    f"⚠️ Переворот не завершён! Позиция не открыта.\n"
+                    f"⚠️ Переворот не завершён!\n"
                     f"Тикер: {tkr}, запрошено {total_qty} контрактов.\n"
-                    f"Текущая позиция после сделки: {actual_position:+}."
+                    f"Позиция после сделки: {actual_position:+}"
                 )
 
             summary = await get_account_summary()
@@ -175,11 +179,10 @@ async def process_signal(tv_tkr: str, sig: str):
 
         return {"status": "flip"}
 
-    # Усреднение
     if cur * dir_ > 0:
         new = cur + ADD_QTY[tkr]
         if abs(new) > MAX_QTY[tkr]:
-            await send_telegram_log(f"🚫 Лимит {tkr}={MAX_QTY[tkr]}, пропущаем усреднение")
+            await send_telegram_log(f"❌ Превышен лимит по {tkr}: {MAX_QTY[tkr]}")
             return {"status": "limit"}
 
         result = await execute_market_order(tkr, side, ADD_QTY[tkr])
@@ -196,7 +199,6 @@ async def process_signal(tv_tkr: str, sig: str):
 
         return {"status": "avg"}
 
-    # Первичное открытие
     if cur == 0:
         result = await execute_market_order(tkr, side, START_QTY[tkr])
         if result:
