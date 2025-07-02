@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException
 from auth import get_access_token
-from trading import total_profit, initial_balance
 from loguru import logger
 import httpx
 
