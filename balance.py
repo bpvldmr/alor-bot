@@ -40,13 +40,9 @@ def build_portfolio_summary(summary: dict, profit_total: float, base_balance: fl
     return report
 
 
-async def send_balance_to_telegram(summary: dict):
+async def send_balance_to_telegram(summary: dict, profit_total: float, base_balance: float):
     try:
-        report = build_portfolio_summary(
-            summary,
-            profit_total=total_profit,
-            base_balance=initial_balance or 1  # чтобы не было деления на 0
-        )
+        report = build_portfolio_summary(summary, profit_total, base_balance or 1)
 
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         payload = {
@@ -83,7 +79,9 @@ async def get_balance():
         logger.exception("Ошибка при получении баланса")
         raise HTTPException(status_code=502, detail=f"Ошибка запроса: {str(e)}")
 
-    await send_balance_to_telegram(data)
+    # ❗ Без передачи profit_total / base_balance тут send_balance_to_telegram вызовет ошибку
+    await send_balance_to_telegram(data, profit_total=0, base_balance=1)  # Заглушка
+
     balance = data.get("cashAvailableForWithdrawal", 0.0)
     return {"balance": balance}
 
