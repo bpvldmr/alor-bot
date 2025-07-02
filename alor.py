@@ -47,10 +47,9 @@ async def place_order(order: dict):
     }
 
     await send_telegram_log(
-        f"📤 Отправка рыночной заявки:\n"
+        f"📤 Отправка заявки:\n"
         f"📈 Тикер: `{symbol}`\n"
-        f"📊 Сторона: `{order['side'].upper()}` | Объём: `{order['qty']}`\n"
-        f"🔗 URL: `{url}`"
+        f"📊 Сторона: `{order['side'].upper()}` | Объём: `{order['qty']}`"
     )
 
     try:
@@ -58,11 +57,6 @@ async def place_order(order: dict):
             resp = await client.post(url, json=payload, headers=headers)
             resp.raise_for_status()
             data = resp.json()
-
-        await send_telegram_log(
-            f"✅ Успешная заявка исполнена\n"
-            f"🧾 Ответ:\n```json\n{data}\n```"
-        )
 
         return {
             "price": float(data.get("price", 0)),
@@ -72,28 +66,20 @@ async def place_order(order: dict):
         }
 
     except httpx.HTTPStatusError as e:
-        logger.error(f"❌ HTTP ошибка ALOR: {e.response.status_code} - {e.response.text}")
-        await send_telegram_log(
-            f"❌ Ошибка HTTP при заявке:\n"
-            f"Код: {e.response.status_code}\n"
-            f"Ответ:\n```{e.response.text}```"
-        )
-        return {
-            "status": "error",
-            "code": e.response.status_code,
-            "detail": e.response.text
-        }
+        await send_telegram_log(f"❌ HTTP ошибка {e.response.status_code}:\n{e.response.text}")
+        logger.error(f"HTTP {e.response.status_code} - {e.response.text}")
+        return {"status": "error", "detail": e.response.text}
 
     except Exception as e:
-        logger.error(f"❌ ALOR: Ошибка при отправке заявки: {e}")
-        await send_telegram_log(f"❌ Ошибка при отправке заявки:\n{str(e)}")
+        await send_telegram_log(f"❌ Ошибка при отправке заявки:\n{e}")
+        logger.exception("Ошибка при отправке заявки")
         return {"status": "error", "detail": str(e)}
 
-# ✅ Получение позиции по тикеру
+# ✅ Получение позиции по конкретному тикеру
 async def get_position_snapshot(ticker: str) -> dict:
     symbol = get_alor_symbol(ticker)
     token = await get_access_token()
-    url = f"{BASE_URL}/md/v2/Clients/MOEX/{ACCOUNT_ID}/positions"  # ✅ исправленный путь
+    url = f"{BASE_URL}/md/v2/Clients/MOEX/{ACCOUNT_ID}/positions"
 
     headers = {
         "Authorization": f"Bearer {token}"
@@ -115,6 +101,58 @@ async def get_position_snapshot(ticker: str) -> dict:
         return {"qty": 0, "avgPrice": 0.0}
 
     except Exception as e:
-        logger.error(f"❌ Ошибка при получении позиции для {ticker}: {e}")
-        await send_telegram_log(f"❌ Ошибка при получении позиции для {ticker}:\n{e}")
+        await send_telegram_log(f"❌ Ошибка получения позиции {ticker}:\n{e}")
+        logger.exception("Ошибка get_position_snapshot")
         return {"qty": 0, "avgPrice": 0.0}
+
+# ✅ Получение последней цены из сделок
+async def get_last_trade_price(ticker: str) -> float:
+    symbol = get_alor_symbol(ticker)
+    token = await get_access_token()
+    url = f"{BASE_URL}/md/v2/Securities/MOEX/{symbol}/trades/recent"
+
+    headers = {
+        "Authorization": f"Bearer {token}"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            trades = response.json()
+            if trades:
+                return float(trades[0]["price"])
+            return 0.0
+    except Exception as e:
+        await send_telegram_log(f"❌ Ошибка получения трейда для {ticker}:\n{e}")
+        logger.exception("Ошибка get_last_trade_price")
+        return 0.0
+
+# ✅ Получение всех текущих позиций (для расчёта позиции перед входом)
+async def get_current_positions() -> dict:
+    token = await get_access_token()
+    url = f"{BASE_URL}/md/v2/Clients/MOEX/{ACCOUNT_ID}/positions"
+    headers = {
+        "Authorization": f"Bearer {token}"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+
+        result = {}
+        for pos in data:
+            symbol = pos.get("symbol")
+            qty = int(pos.get("qty", 0))
+            if qty != 0:
+                for tv_tkr, info in TICKER_MAP.items():
+                    if get_alor_symbol(info["trade"]) == symbol:
+                        result[info["trade"]] = qty
+        return result
+
+    except Exception as e:
+        await send_telegram_log(f"❌ Ошибка get_current_positions:\n{e}")
+        logger.exception("Ошибка get_current_positions")
+        return {}
