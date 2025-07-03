@@ -18,7 +18,7 @@ total_profit = 0
 total_deposit = 0
 total_withdrawal = 0
 
-SIGNAL_COOLDOWN_SECONDS = 3600  # 1 час только на RSI сигналы
+SIGNAL_COOLDOWN_SECONDS = 3600  # 1 час — только для RSI сигналов
 
 def get_alor_symbol(instrument: str) -> str:
     return {"CRU5": "CNY-9.25", "NGN5": "NG-7.25"}.get(instrument, instrument)
@@ -63,7 +63,7 @@ async def execute_market_order(ticker: str, side: str, qty: int):
 async def process_signal(tv_tkr: str, sig: str):
     global total_profit, initial_balance, last_balance, total_deposit, total_withdrawal
 
-    await send_telegram_log(f"📅 Обработка сигнала: {tv_tkr} / {sig}")
+    await send_telegram_log(f"📩 Обработка сигнала: {tv_tkr} / {sig}")
 
     if tv_tkr not in TICKER_MAP:
         await send_telegram_log(f"⚠️ Неизвестный тикер {tv_tkr}")
@@ -72,10 +72,12 @@ async def process_signal(tv_tkr: str, sig: str):
     tkr = TICKER_MAP[tv_tkr]["trade"]
     sig_upper = sig.upper()
 
+    # 📌 Обработка RSI сигналов с индивидуальным ограничением по инструменту
     if sig_upper in ("RSI>70", "RSI<30"):
         now = time.time()
         signal_key = f"{tkr}:{sig_upper}"
         last_time = last_signals.get(signal_key)
+
         if last_time and now - last_time < SIGNAL_COOLDOWN_SECONDS:
             await send_telegram_log(f"⏳ Сигнал проигнорирован (cooldown): {tv_tkr}/{sig}")
             return {"status": "ignored"}
@@ -113,6 +115,7 @@ async def process_signal(tv_tkr: str, sig: str):
                     )
             return {"status": "partial_short_close"}
 
+    # 💥 Обработка обычных сигналов LONG/SHORT
     dir_ = 1 if sig_upper == "LONG" else -1
     side = "buy" if dir_ > 0 else "sell"
 
