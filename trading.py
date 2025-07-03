@@ -4,7 +4,7 @@ import httpx
 from telegram_logger import send_telegram_log
 from config import TICKER_MAP, START_QTY, ADD_QTY, MAX_QTY, BASE_URL, ACCOUNT_ID
 from auth import get_current_balance, get_access_token
-from alor import place_order, get_position_snapshot, get_current_positions
+from alor import place_order, get_position_snapshot
 from trade_logger import log_trade_result
 from balance import send_balance_to_telegram
 
@@ -35,7 +35,36 @@ async def get_account_summary():
         resp.raise_for_status()
         return resp.json()
 
+async def get_all_positions():
+    token = await get_access_token()
+    url = f"{BASE_URL}/md/v2/Clients/MOEX/{ACCOUNT_ID}/positions"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json"
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(url, headers=headers)
+        resp.raise_for_status()
+        return resp.json()
+
+async def log_all_positions():
+    try:
+        data = await get_all_positions()
+        msg = "📊 Позиции после сделки:\n"
+        for pos in data:
+            ticker = pos.get("symbol")
+            qty = pos.get("qty", 0)
+            avg_price = pos.get("averagePrice", 0.0)
+            if qty != 0:
+                msg += f"• {ticker}: {qty:+} @ {avg_price:.2f}\n"
+        await send_telegram_log(msg)
+    except Exception as e:
+        await send_telegram_log(f"⚠️ Ошибка при получении позиций: {e}")
+
 async def execute_market_order(ticker: str, side: str, qty: int):
+    await send_telegram_log(f"📥 Запрос позиций перед ордером ({ticker})")
+    await log_all_positions()
+
     alor_symbol = get_alor_symbol(ticker)
     res = await place_order({
         "side": side.upper(),
@@ -53,6 +82,8 @@ async def execute_market_order(ticker: str, side: str, qty: int):
     await asyncio.sleep(30)
     snapshot = await get_position_snapshot(ticker)
     actual_position = snapshot.get("qty", 0)
+
+    await log_all_positions()
 
     return {
         "price": res.get("price", 0.0),
@@ -72,7 +103,6 @@ async def process_signal(tv_tkr: str, sig: str):
     tkr = TICKER_MAP[tv_tkr]["trade"]
     sig_upper = sig.strip().upper()
 
-    # 📌 Обработка RSI сигналов
     if sig_upper in ("RSI>70", "RSI<30"):
         now = time.time()
         signal_key = f"{tkr}:{sig_upper}"
@@ -85,8 +115,8 @@ async def process_signal(tv_tkr: str, sig: str):
 
         last_signals[signal_key] = now
 
-        positions_snapshot = await get_current_positions()
-        cur = positions_snapshot.get(tkr, 0)
+        all_positions = await get_all_positions()
+        cur = next((pos["qty"] for pos in all_positions if pos["symbol"] == tkr), 0)
         current_positions[tkr] = cur
 
         if cur == 0:
@@ -100,8 +130,7 @@ async def process_signal(tv_tkr: str, sig: str):
                 if result:
                     current_positions[tkr] = cur - half_qty
                     await send_telegram_log(
-                        f"📉 RSI>70: Продажа 50% LONG по {tkr}\n"
-                        f"Контракты: {half_qty}\nЦена: {result['price']:.2f}"
+                        f"📉 RSI>70: Продажа 50% LONG по {tkr}\nКонтракты: {half_qty}\nЦена: {result['price']:.2f}"
                     )
             return {"status": "partial_long_close"}
 
@@ -112,12 +141,11 @@ async def process_signal(tv_tkr: str, sig: str):
                 if result:
                     current_positions[tkr] = cur + half_qty
                     await send_telegram_log(
-                        f"📈 RSI<30: Покупка 50% SHORT по {tkr}\n"
-                        f"Контракты: {half_qty}\nЦена: {result['price']:.2f}"
+                        f"📈 RSI<30: Покупка 50% SHORT по {tkr}\nКонтракты: {half_qty}\nЦена: {result['price']:.2f}"
                     )
             return {"status": "partial_short_close"}
 
-    # 💥 Обработка LONG / SHORT сигналов
+    # --- Стандартные сигналы LONG / SHORT ---
     if sig_upper not in ("LONG", "SHORT"):
         await send_telegram_log(f"⚠️ Неизвестный сигнал: {sig_upper}")
         return {"status": "invalid_signal"}
@@ -125,8 +153,8 @@ async def process_signal(tv_tkr: str, sig: str):
     dir_ = 1 if sig_upper == "LONG" else -1
     side = "buy" if dir_ > 0 else "sell"
 
-    positions_snapshot = await get_current_positions()
-    cur = positions_snapshot.get(tkr, 0)
+    all_positions = await get_all_positions()
+    cur = next((pos["qty"] for pos in all_positions if pos["symbol"] == tkr), 0)
     current_positions[tkr] = cur
 
     if cur * dir_ < 0:
@@ -178,8 +206,7 @@ async def process_signal(tv_tkr: str, sig: str):
                 )
             else:
                 await send_telegram_log(
-                    f"⚠️ Переворот не завершён!\n"
-                    f"{tkr} — запрошено {total_qty} контрактов, получено {actual_position:+}"
+                    f"⚠️ Переворот не завершён!\n{tkr} — запрошено {total_qty}, получено {actual_position}"
                 )
 
             summary = await get_account_summary()
