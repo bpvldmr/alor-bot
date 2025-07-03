@@ -5,12 +5,12 @@ from auth import get_access_token
 from telegram_logger import send_telegram_log
 from loguru import logger
 
-# 🎯 Маппинг тикеров TradingView -> Alor
-def get_alor_symbol(instrument: str) -> str:
-    return {
-        "CRU5": "CNY-9.25",
-        "NGN5": "NG-7.25"
-    }.get(instrument, instrument)
+# 🎯 Получить биржевой символ по тикеру
+def get_alor_symbol(ticker: str) -> str:
+    for tv_tkr, data in TICKER_MAP.items():
+        if data["trade"] == ticker:
+            return data["symbol"]
+    return ticker  # fallback
 
 # ✅ Заявка на рыночный ордер
 async def place_order(order: dict):
@@ -125,7 +125,7 @@ async def get_current_positions() -> dict:
             qty = int(pos.get("qty", 0))
             if qty != 0:
                 for tv_tkr, info in TICKER_MAP.items():
-                    if get_alor_symbol(info["trade"]) == symbol:
+                    if info["symbol"] == symbol:
                         result[info["trade"]] = qty
         return result
 
