@@ -19,7 +19,7 @@ async def place_order(order: dict):
         return {"status": "error", "detail": "Bad order format"}
 
     token = await get_access_token()
-    url = f"{BASE_URL}/commandapi/warptrans/TRADE/v2/client/orders/actions/limit"
+    url = f"{BASE_URL}/commandapi/warptrans/TRADE/v2/client/orders/actions/market"
     symbol = get_alor_symbol(order["instrument"])
 
     headers = {
