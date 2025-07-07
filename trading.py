@@ -89,29 +89,37 @@ async def process_signal(tv_tkr: str, sig: str):
             await send_telegram_log(f"⚠️ Нет открытой позиции по {tkr}, сигнал {sig} проигнорирован")
             return {"status": "no_position"}
 
-        if sig_upper == "RSI>70" and cur > 0:
-            half_qty = abs(cur) // 2
-            if half_qty > 0:
-                result = await execute_market_order(tkr, "sell", half_qty)
-                if result:
-                    current_positions[tkr] = cur - half_qty
-                    await send_telegram_log(
-                        f"📉 RSI>70: Продаём половину LONG по {tkr}\n"
-                        f"Контракты: {half_qty}\nЦена: {result['price']:.2f}"
-                    )
-            return {"status": "partial_long_close"}
+        if sig_upper == "RSI>70":
+            if cur > 0:
+                half_qty = abs(cur) // 2
+                if half_qty > 0:
+                    result = await execute_market_order(tkr, "sell", half_qty)
+                    if result:
+                        current_positions[tkr] = cur - half_qty
+                        await send_telegram_log(
+                            f"📉 RSI>70: Продаём половину LONG по {tkr}\n"
+                            f"Контракты: {half_qty}\nЦена: {result['price']:.2f}"
+                        )
+                return {"status": "partial_long_close"}
+            elif cur < 0:
+                await send_telegram_log(f"⚠️ RSI>70: У вас SHORT по {tkr}, ничего не делаем")
+                return {"status": "noop"}
 
-        elif sig_upper == "RSI<30" and cur < 0:
-            half_qty = abs(cur) // 2
-            if half_qty > 0:
-                result = await execute_market_order(tkr, "buy", half_qty)
-                if result:
-                    current_positions[tkr] = cur + half_qty
-                    await send_telegram_log(
-                        f"📈 RSI<30: Покупаем половину SHORT по {tkr}\n"
-                        f"Контракты: {half_qty}\nЦена: {result['price']:.2f}"
-                    )
-            return {"status": "partial_short_close"}
+        elif sig_upper == "RSI<30":
+            if cur < 0:
+                half_qty = abs(cur) // 2
+                if half_qty > 0:
+                    result = await execute_market_order(tkr, "buy", half_qty)
+                    if result:
+                        current_positions[tkr] = cur + half_qty
+                        await send_telegram_log(
+                            f"📈 RSI<30: Покупаем половину SHORT по {tkr}\n"
+                            f"Контракты: {half_qty}\nЦена: {result['price']:.2f}"
+                        )
+                return {"status": "partial_short_close"}
+            elif cur > 0:
+                await send_telegram_log(f"⚠️ RSI<30: У вас LONG по {tkr}, ничего не делаем")
+                return {"status": "noop"}
 
     dir_ = 1 if sig_upper == "LONG" else -1
     side = "buy" if dir_ > 0 else "sell"
