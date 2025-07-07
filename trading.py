@@ -18,18 +18,12 @@ total_profit = 0
 total_deposit = 0
 total_withdrawal = 0
 
-SIGNAL_COOLDOWN_SECONDS = 3600  # 1 час — только для RSI сигналов
-
-def get_alor_symbol(instrument: str) -> str:
-    return {"CRU5": "CNY-9.25", "NGN5": "NG-7.25"}.get(instrument, instrument)
+SIGNAL_COOLDOWN_SECONDS = 1800  # 30 минут для RSI сигналов
 
 async def get_account_summary():
     token = await get_access_token()
     url = f"{BASE_URL}/md/v2/Clients/MOEX/{ACCOUNT_ID}/summary"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(url, headers=headers)
         resp.raise_for_status()
@@ -38,10 +32,7 @@ async def get_account_summary():
 async def get_all_positions():
     token = await get_access_token()
     url = f"{BASE_URL}/md/v2/Clients/MOEX/{ACCOUNT_ID}/positions"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(url, headers=headers)
         resp.raise_for_status()
@@ -65,12 +56,12 @@ async def execute_market_order(ticker: str, side: str, qty: int):
     await send_telegram_log(f"📥 Запрос позиций перед ордером ({ticker})")
     await log_all_positions()
 
-    alor_symbol = get_alor_symbol(ticker)
+    symbol = "CNY-9.25" if ticker == "CRU5" else "NG-7.25"
     res = await place_order({
         "side": side.upper(),
         "qty": qty,
         "instrument": ticker,
-        "symbol": alor_symbol
+        "symbol": symbol
     })
 
     print("📅 Order sent, got response:", res)
@@ -101,6 +92,7 @@ async def process_signal(tv_tkr: str, sig: str):
         return {"error": "Unknown ticker"}
 
     tkr = TICKER_MAP[tv_tkr]["trade"]
+    symbol = "CNY-9.25" if tkr == "CRU5" else "NG-7.25"
     sig_upper = sig.strip().upper()
 
     if sig_upper in ("RSI>70", "RSI<30"):
@@ -108,44 +100,52 @@ async def process_signal(tv_tkr: str, sig: str):
         signal_key = f"{tkr}:{sig_upper}"
         last_time = last_signals.get(signal_key)
 
-        if last_time and now - last_time < SIGNAL_COOLDOWN_SECONDS:
-            remaining = int(SIGNAL_COOLDOWN_SECONDS - (now - last_time))
-            await send_telegram_log(f"🕓 Сигнал {sig_upper} проигнорирован ({tkr}) — Cooldown: {remaining} сек.")
-            return {"status": "cooldown"}
-
-        last_signals[signal_key] = now
-
         all_positions = await get_all_positions()
-        cur = next((pos["qty"] for pos in all_positions if pos["symbol"] == tkr), 0)
+        cur = next((pos["qty"] for pos in all_positions if pos["symbol"] == symbol), 0)
         current_positions[tkr] = cur
 
-        if cur == 0:
-            await send_telegram_log(f"⛔ Сигнал {sig_upper} по {tkr} проигнорирован — нет открытой позиции")
-            return {"status": "no_position"}
-
-        if sig_upper == "RSI>70" and cur > 0:
-            half_qty = abs(cur) // 2
-            if half_qty > 0:
-                result = await execute_market_order(tkr, "sell", half_qty)
+        if last_time and now - last_time >= SIGNAL_COOLDOWN_SECONDS:
+            # Истёк cooldown → закрываем всю позицию
+            if cur != 0:
+                side = "sell" if cur > 0 else "buy"
+                result = await execute_market_order(tkr, side, abs(cur))
                 if result:
-                    current_positions[tkr] = cur - half_qty
                     await send_telegram_log(
-                        f"📉 RSI>70: Продажа 50% LONG по {tkr}\nКонтракты: {half_qty}\nЦена: {result['price']:.2f}"
+                        f"⚠️ RSI повторный сигнал после cooldown — закрытие всей позиции по {tkr}\n"
+                        f"Контракты: {abs(cur)}\nЦена: {result['price']:.2f}"
                     )
-            return {"status": "partial_long_close"}
+                    current_positions[tkr] = 0
+            return {"status": "full_close_after_rsi"}
 
-        elif sig_upper == "RSI<30" and cur < 0:
-            half_qty = abs(cur) // 2
-            if half_qty > 0:
-                result = await execute_market_order(tkr, "buy", half_qty)
-                if result:
-                    current_positions[tkr] = cur + half_qty
-                    await send_telegram_log(
-                        f"📈 RSI<30: Покупка 50% SHORT по {tkr}\nКонтракты: {half_qty}\nЦена: {result['price']:.2f}"
-                    )
-            return {"status": "partial_short_close"}
+        elif not last_time or now - last_time < SIGNAL_COOLDOWN_SECONDS:
+            last_signals[signal_key] = now
 
-    # --- Стандартные сигналы LONG / SHORT ---
+            if cur == 0:
+                await send_telegram_log(f"⛔ Сигнал {sig_upper} по {tkr} проигнорирован — нет открытой позиции")
+                return {"status": "no_position"}
+
+            if sig_upper == "RSI>70" and cur > 0:
+                half_qty = abs(cur) // 2
+                if half_qty > 0:
+                    result = await execute_market_order(tkr, "sell", half_qty)
+                    if result:
+                        current_positions[tkr] = cur - half_qty
+                        await send_telegram_log(
+                            f"📉 RSI>70: Продажа 50% LONG по {tkr}\nКонтракты: {half_qty}\nЦена: {result['price']:.2f}"
+                        )
+                return {"status": "partial_long_close"}
+
+            elif sig_upper == "RSI<30" and cur < 0:
+                half_qty = abs(cur) // 2
+                if half_qty > 0:
+                    result = await execute_market_order(tkr, "buy", half_qty)
+                    if result:
+                        current_positions[tkr] = cur + half_qty
+                        await send_telegram_log(
+                            f"📈 RSI<30: Покупка 50% SHORT по {tkr}\nКонтракты: {half_qty}\nЦена: {result['price']:.2f}"
+                        )
+                return {"status": "partial_short_close"}
+
     if sig_upper not in ("LONG", "SHORT"):
         await send_telegram_log(f"⚠️ Неизвестный сигнал: {sig_upper}")
         return {"status": "invalid_signal"}
@@ -154,7 +154,7 @@ async def process_signal(tv_tkr: str, sig: str):
     side = "buy" if dir_ > 0 else "sell"
 
     all_positions = await get_all_positions()
-    cur = next((pos["qty"] for pos in all_positions if pos["symbol"] == tkr), 0)
+    cur = next((pos["qty"] for pos in all_positions if pos["symbol"] == symbol), 0)
     current_positions[tkr] = cur
 
     if cur * dir_ < 0:
