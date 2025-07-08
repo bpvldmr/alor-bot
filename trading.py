@@ -12,7 +12,7 @@ from trade_logger import log_trade_result
 from balance      import send_balance_to_telegram
 
 # ─────────────────────────────────── Глобальные состояния ────────────────────
-current_positions = {v["trade"]: 0 for v in TICKER_MAP.values()}   # trade = symbol
+current_positions = {v["trade"]: 0 for v in TICKER_MAP.values()}   # trade == symbol
 entry_prices      = {}
 last_signals      = {}
 
@@ -25,6 +25,7 @@ total_withdrawal  = 0
 SIGNAL_COOLDOWN_SECONDS = 3600      # 1-часовой cooldown для RSI
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def get_alor_symbol(instrument: str) -> str:
     """Возвращает биржевой symbol для ALOR-API.
        Сейчас trade == symbol, но оставляем гибкость на будущее."""
@@ -32,6 +33,7 @@ def get_alor_symbol(instrument: str) -> str:
         if info["trade"] == instrument:
             return info["symbol"]
     return instrument      # fallback
+
 
 async def get_account_summary():
     token = await get_access_token()
@@ -42,8 +44,9 @@ async def get_account_summary():
         r.raise_for_status()
         return r.json()
 
+
 async def execute_market_order(symbol: str, side: str, qty: int):
-    """Отправляет рынок и через 30 с запрашивает фактическую позицию."""
+    """Отправляет маркет-ордер и через 30 с запрашивает фактическую позицию."""
     res = await place_order({
         "side": side.upper(),
         "qty":  qty,
@@ -62,12 +65,13 @@ async def execute_market_order(symbol: str, side: str, qty: int):
     actual_position = snapshot.get("qty", 0)
 
     return {
-        "price":     res.get("price", 0.0),
-        "order_id":  res.get("order_id", "—"),
-        "position":  actual_position
+        "price":    res.get("price", 0.0),
+        "order_id": res.get("order_id", "—"),
+        "position": actual_position
     }
 
-# ════════════════════════  ОСНОВНАЯ ФУНКЦИЯ  ═════════════════════════════════
+
+# ════════════════════  ОСНОВНАЯ ФУНКЦИЯ ОБРАБОТКИ СИГНАЛА  ═══════════════════
 async def process_signal(tv_tkr: str, sig: str):
     global total_profit, initial_balance, last_balance, total_deposit, total_withdrawal
 
@@ -77,14 +81,14 @@ async def process_signal(tv_tkr: str, sig: str):
         await send_telegram_log(f"⚠️ Неизвестный тикер {tv_tkr}")
         return {"error": "Unknown ticker"}
 
-    symbol    = TICKER_MAP[tv_tkr]["trade"]      # trade == symbol
+    symbol    = TICKER_MAP[tv_tkr]["trade"]      # "CNY-9.25" или "NG-7.25"
     sig_upper = sig.upper()
 
     # ─────────────── RSI > 70 / RSI < 30 ─────────────────────────────────────
     if sig_upper in ("RSI>70", "RSI<30"):
         now = time.time()
         key = f"{symbol}:{sig_upper}"
-        if last_signals.get(key) and now - last_signals[key] < SIGNAL_COOLDOWN_SECONDS:
+        if key in last_signals and now - last_signals[key] < SIGNAL_COOLDOWN_SECONDS:
             await send_telegram_log(f"⏳ Сигнал проигнорирован (cooldown): {tv_tkr}/{sig}")
             return {"status": "ignored"}
         last_signals[key] = now
@@ -97,6 +101,7 @@ async def process_signal(tv_tkr: str, sig: str):
             await send_telegram_log(f"⚠️ Нет открытой позиции по {symbol}, сигнал {sig} проигнорирован")
             return {"status": "no_position"}
 
+        # --- RSI>70: частичное закрытие LONG --------------------------------
         if sig_upper == "RSI>70":
             if cur > 0:
                 half = abs(cur) // 2
@@ -105,12 +110,14 @@ async def process_signal(tv_tkr: str, sig: str):
                     if res:
                         current_positions[symbol] = cur - half
                         await send_telegram_log(
-                            f"📉 RSI>70: Продаём половину LONG по {symbol}\nКонтракты: {half}\nЦена: {res['price']:.2f}"
+                            f"📉 RSI>70: Продаём половину LONG по {symbol}\n"
+                            f"Контракты: {half}\nЦена: {res['price']:.2f}"
                         )
                 return {"status": "partial_long_close"}
             await send_telegram_log(f"⚠️ RSI>70: У вас SHORT по {symbol}, ничего не делаем")
             return {"status": "noop"}
 
+        # --- RSI<30: частичное закрытие SHORT -------------------------------
         if sig_upper == "RSI<30":
             if cur < 0:
                 half = abs(cur) // 2
@@ -119,47 +126,18 @@ async def process_signal(tv_tkr: str, sig: str):
                     if res:
                         current_positions[symbol] = cur + half
                         await send_telegram_log(
-                            f"📈 RSI<30: Покупаем половину SHORT по {symbol}\nКонтракты: {half}\nЦена: {res['price']:.2f}"
+                            f"📈 RSI<30: Покупаем половину SHORT по {symbol}\n"
+                            f"Контракты: {half}\nЦена: {res['price']:.2f}"
                         )
                 return {"status": "partial_short_close"}
             await send_telegram_log(f"⚠️ RSI<30: У вас LONG по {symbol}, ничего не делаем")
             return {"status": "noop"}
 
-    # ─────────────── LONG0 / SHORT0  (полное закрытие) ───────────────────────
-    if sig_upper in ("LONG0", "SHORT0"):
-        positions = await get_current_positions()
-        cur = positions.get(symbol, 0)
-        current_positions[symbol] = cur
-
-        if cur == 0:
-            await send_telegram_log(f"⚠️ Нет позиции по {symbol}, сигнал {sig_upper} проигнорирован")
-            return {"status": "no_position"}
-
-        # LONG0 закрывает SHORT, SHORT0 закрывает LONG
-        need_close_short = sig_upper == "LONG0"  and cur < 0
-        need_close_long  = sig_upper == "SHORT0" and cur > 0
-        if not (need_close_short or need_close_long):
-            await send_telegram_log(
-                f"⚠️ Сигнал {sig_upper} не совпадает с направлением позиции {cur:+}"
-            )
-            return {"status": "direction_mismatch"}
-
-        side = "buy" if cur < 0 else "sell"
-        qty  = abs(cur)
-
-        res = await execute_market_order(symbol, side, qty)
-        if res:
-            current_positions[symbol] = 0
-            entry_prices.pop(symbol, None)
-            await send_telegram_log(
-                f"🔒 {sig_upper}: позиция по {symbol} закрыта полностью\n"
-                f"Контракты: {qty}\nЦена: {res['price']:.2f}"
-            )
-            summary = await get_account_summary()
-            await send_balance_to_telegram(summary, total_profit, initial_balance or 1)
-        return {"status": "close_all"}
-
     # ─────────────── Обычные LONG / SHORT ────────────────────────────────────
+    if sig_upper not in ("LONG", "SHORT"):
+        await send_telegram_log(f"⚠️ Неизвестный тип сигнала: {sig_upper}")
+        return {"status": "invalid_action"}
+
     dir_  = 1 if sig_upper == "LONG" else -1
     side  = "buy" if dir_ > 0 else "sell"
 
@@ -167,7 +145,7 @@ async def process_signal(tv_tkr: str, sig: str):
     cur = positions.get(symbol, 0)
     current_positions[symbol] = cur
 
-    # 1⃣ Переворот ------------------------------------------------------------
+    # 1️⃣ Переворот -----------------------------------------------------------
     if cur * dir_ < 0:
         await send_telegram_log(f"🔄 Переворот: {symbol}, сигнал {sig_upper}, позиция {cur}")
         total_qty = abs(cur) + START_QTY[symbol]
@@ -226,7 +204,7 @@ async def process_signal(tv_tkr: str, sig: str):
 
         return {"status": "flip"}
 
-    # 2⃣ Усреднение -----------------------------------------------------------
+    # 2️⃣ Усреднение ----------------------------------------------------------
     if cur * dir_ > 0:
         new = cur + ADD_QTY[symbol]
         if abs(new) > MAX_QTY[symbol]:
@@ -249,7 +227,7 @@ async def process_signal(tv_tkr: str, sig: str):
 
         return {"status": "avg"}
 
-    # 3⃣ Открытие -------------------------------------------------------------
+    # 3️⃣ Открытие ------------------------------------------------------------
     if cur == 0:
         res = await execute_market_order(symbol, side, START_QTY[symbol])
         if res:
@@ -266,6 +244,7 @@ async def process_signal(tv_tkr: str, sig: str):
         return {"status": "open"}
 
     return {"status": "noop"}
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 __all__ = ["total_profit", "initial_balance"]
