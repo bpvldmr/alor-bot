@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request
 import json
 from telegram_logger import send_telegram_log
-from trading import process_signal  # ✅ Основная логика обработки
+from trading import process_signal          # ✅ Основная логика обработки
 from auth import get_current_balance
 
 router = APIRouter()
@@ -10,7 +10,11 @@ router = APIRouter()
 SECRET_TOKEN = "sEcr0901A2B3"
 
 # ✅ Допустимые типы сигналов
-VALID_ACTIONS = {"LONG", "SHORT", "RSI>70", "RSI<30"}
+VALID_ACTIONS = {
+    "LONG", "SHORT",
+    "RSI>70", "RSI<30",
+    "LONG0", "SHORT0"         # ← добавлены новые слова
+}
 
 @router.post("/webhook/{token}")
 async def webhook(token: str, request: Request):
