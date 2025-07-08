@@ -13,7 +13,6 @@ SECRET_TOKEN = "sEcr0901A2B3"
 VALID_ACTIONS = {
     "LONG", "SHORT",
     "RSI>70", "RSI<30",
-    "LONG0", "SHORT0"         # ← добавлены новые слова
 }
 
 @router.post("/webhook/{token}")
