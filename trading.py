@@ -31,16 +31,59 @@ SIGNAL_COOLDOWN_SECONDS = 3600    # 1-часовой cool-down для всех R
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-async def execute_market_order(symbol: str, side: str, qty: int):
-    """Маркет-ордер и подтверждение фактической позиции через 30 с"""
-    res = await place_order({"side": side.upper(), "qty": qty,
-                             "instrument": symbol, "symbol": symbol})
-    if "error" in res:
-        await send_telegram_log(f"❌ {side}/{symbol}/{qty}: {res['error']}")
-        return None
-    await asyncio.sleep(30)
-    snap = await get_position_snapshot(symbol)
-    return {"price": res.get("price", 0.0), "position": snap.get("qty", 0)}
+async def execute_market_order(
+    symbol: str,
+    side: str,
+    qty: int,
+    *,
+    max_retries: int = 3,          # попыток при клиринге
+    delay_sec:   int = 300         # пауза 5 мин между повторами
+):
+    """
+    Отправить маркет-ордер и через 30 с подтвердить фактическую позицию.
+    Если Alor вернёт HTTP 400 с ExchangeUndefinedError и текстом «клиринг»,
+    повторяем заявку (до max_retries раз, каждые delay_sec секунд).
+    """
+    attempt = 1
+    while attempt <= max_retries:
+        res = await place_order({
+            "side": side.upper(),
+            "qty":  qty,
+            "instrument": symbol,
+            "symbol":     symbol
+        })
+
+        # ── ошибка? ─────────────────────────────────────────────────────────
+        if "error" in res:
+            err_txt = str(res["error"])
+            if ("ExchangeUndefinedError" in err_txt
+                    and "клиринг" in err_txt.lower()):
+                # биржа на клиринге → повторить позднее
+                await send_telegram_log(
+                    f"⏳ {symbol}: клиринг, повтор через {delay_sec//60} мин "
+                    f"(попытка {attempt}/{max_retries})"
+                )
+                attempt += 1
+                await asyncio.sleep(delay_sec)
+                continue
+            else:          # любая другая ошибка
+                await send_telegram_log(f"❌ {side}/{symbol}/{qty}: {err_txt}")
+                return None
+
+        # ── успех ───────────────────────────────────────────────────────────
+        await asyncio.sleep(30)                      # дождаться фактического qty
+        snap = await get_position_snapshot(symbol)
+        return {
+            "price":    res.get("price", 0.0),
+            "position": snap.get("qty", 0)
+        }
+
+    # все попытки исчерпаны
+    await send_telegram_log(
+        f"⚠️ {symbol}: не удалось отправить ордер после {max_retries} попыток "
+        "(клиринг не закончился)"
+    )
+    return None
 
 
 # ═════════════════════  ОБРАБОТКА СИГНАЛА  ═══════════════════════════════════
@@ -64,9 +107,8 @@ async def process_signal(tv_tkr: str, sig: str):
 
         positions = await get_current_positions()
         cur = positions.get(symbol, 0)
-        half_start = max(START_QTY[symbol] // 2, 1)   # минимум 1 контракт
+        half_start = max(START_QTY[symbol] // 2, 1)   # ≥1 контракт
 
-        # направление нового сигнала
         want_short = sig_upper == "RSI>80"
         want_long  = sig_upper == "RSI<20"
 
@@ -84,10 +126,10 @@ async def process_signal(tv_tkr: str, sig: str):
                 )
             return {"status": "rsi80_20_open"}
 
-        # ② есть позиция ПРОТИВОПОЛОЖНАЯ сигналу → переворот
+        # ② позиция противоположная → переворот
         if (want_short and cur > 0) or (want_long and cur < 0):
             side      = "sell" if cur > 0 else "buy"
-            qty_flip  = abs(cur) + half_start         # остаток + ½ старт-лота
+            qty_flip  = abs(cur) + half_start
             res = await execute_market_order(symbol, side, qty_flip)
             if res:
                 prev_entry = entry_prices.get(symbol, 0)
@@ -106,13 +148,13 @@ async def process_signal(tv_tkr: str, sig: str):
                 )
             return {"status": "rsi80_20_flip"}
 
-        # ③ позиция уже в ту же сторону – ничего
+        # ③ уже в нужную сторону
         await send_telegram_log(
             f"⚠️ {sig_upper}: позиция {cur:+} уже совпадает с направлением, действий нет"
         )
         return {"status": "noop_rsi80_20"}
 
-    # ───────── RSI>70  /  RSI<30  (½ + остаток) ──────────────────────────────
+    # ───────── RSI>70  /  RSI<30  ────────────────────────────────────────────
     if sig_upper in ("RSI>70", "RSI<30"):
         now, key = time.time(), f"{symbol}:{sig_upper}"
         if key in last_signals and now - last_signals[key] < SIGNAL_COOLDOWN_SECONDS:
