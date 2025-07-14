@@ -1,23 +1,15 @@
 # trading.py
 # ─────────────────────────────────────────────────────────────────────────────
-#   *** 2025-07-10 patch-2  ***
+#   *** 2025-07-14 patch-3  ***
 #
-#   ▸ TPL / TPS  (take-profit сигналы)
-#       • CNY-9.25 → закрываем ***всю позицию***
-#       • NG-7.25  → закрываем ***половину*** позиции  ❮ вернули как раньше
-#       • индивидуальный cooldown:
-#             30 мин — CNY-9.25
-#             15 мин — NG-7.25
-#       • после TPL/TPS блокируем RSI-70/30:
-#             30 мин — CNY-9.25
-#             10 мин — NG-7.25
+#   Изменения:
+#   ▸ Сигналы TPL / TPS теперь закрывают **половину позиции** для
+#       • CNY-9.25
+#       • NG-7.25
+#     (минимум 1 контракт при объёме 1).
 #
-#   ▸ RSI-80/20  — без изменений (½ старта, flip, 60-мин CD)
-#
-#   ▸ RSI-70/30  — при совпадении направления всегда закрываем ***всю*** позицию
-#                  (блокируется на время после TP, CD 60 мин)
-#
-#   ▸ LONG / SHORT, retry-clearing и лимиты — без изменений
+#   ▸ Cool-down и блокировка RSI-70/30 после TP — без изменений
+#   ▸ Логика RSI-80/20, LONG/SHORT — без изменений
 # ─────────────────────────────────────────────────────────────────────────────
 
 import asyncio, time
@@ -27,27 +19,27 @@ from alor   import place_order, get_position_snapshot, get_current_positions
 
 # ──────────── глобальные состояния ──────────────────────────────────────────
 current_positions            = {v["trade"]: 0 for v in TICKER_MAP.values()}
-entry_prices:      dict[str,float] = {}
+entry_prices:      dict[str, float] = {}
 
-last_rsi_signal:   dict[str,float] = {}   # "SYM:RSI>70"
-last_tp_signal:    dict[str,float] = {}   # "SYM:TPL" / "SYM:TPS"
-tp_block_until:    dict[str,float] = {}   # "SYM" → ts  (блок RSI-70/30)
+last_rsi_signal:   dict[str, float] = {}   # "SYM:RSI>70"
+last_tp_signal:    dict[str, float] = {}   # "SYM:TPL" / "SYM:TPS"
+tp_block_until:    dict[str, float] = {}   # "SYM" → ts  (блок RSI-70/30)
 
-RSI_COOLDOWN_SEC  = 60 * 60                          # 1 ч
-TP_COOLDOWN_SEC   = {"CNY-9.25": 30*60,
-                     "NG-7.25" : 15*60}
-TP_BLOCK_SEC      = {"CNY-9.25": 30*60,
-                     "NG-7.25" : 10*60}
+RSI_COOLDOWN_SEC  = 60 * 60                       # 1 ч
+TP_COOLDOWN_SEC   = {"CNY-9.25": 30 * 60,
+                     "NG-7.25" : 15 * 60}
+TP_BLOCK_SEC      = {"CNY-9.25": 30 * 60,
+                     "NG-7.25" : 10 * 60}
 
 # ───────── util: маркет-ордер с retry при клиринге ──────────────────────────
 async def execute_market_order(sym: str, side: str, qty: int,
-                               *, retries=3, delay=300):
+                               *, retries: int = 3, delay: int = 300):
     for attempt in range(1, retries + 1):
         res = await place_order({"side": side.upper(),
                                  "qty":  qty,
                                  "instrument": sym,
                                  "symbol":     sym})
-        if "error" in res:                               # ↩ ошибка
+        if "error" in res:
             err = str(res["error"])
             if "ExchangeUndefinedError" in err and "клиринг" in err.lower():
                 await send_telegram_log(
@@ -57,7 +49,7 @@ async def execute_market_order(sym: str, side: str, qty: int,
             await send_telegram_log(f"❌ order {side}/{sym}/{qty}: {err}")
             return None
 
-        await asyncio.sleep(30)                          # дождаться фактического qty
+        await asyncio.sleep(30)                         # дождаться фактического qty
         snap = await get_position_snapshot(sym)
         return {"price": res.get("price", 0.0),
                 "position": snap.get("qty", 0)}
@@ -87,14 +79,16 @@ async def process_signal(tv_tkr: str, sig: str):
             await send_telegram_log("⚠️ TP but no position")
             return {"status": "no_position"}
 
-        if sig_upper == "TPL" and pos <= 0 or sig_upper == "TPS" and pos >= 0:
+        if (sig_upper == "TPL" and pos <= 0) or (sig_upper == "TPS" and pos >= 0):
             await send_telegram_log("⚠️ TP direction mismatch")
             return {"status": "dir_mismatch"}
 
         side = "sell" if pos > 0 else "buy"
-        # ▸ количество к закрытию
-        qty  = abs(pos) if sym == "CNY-9.25" else max(abs(pos)//2, 1)
-        res  = await execute_market_order(sym, side, qty)
+
+        # ▸ теперь для всех инструментов закрываем **половину** позиции
+        qty = max(abs(pos) // 2, 1)
+
+        res = await execute_market_order(sym, side, qty)
         if res:
             current_positions[sym] = pos - qty if side == "sell" else pos + qty
             if current_positions[sym] == 0:
