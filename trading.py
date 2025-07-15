@@ -1,13 +1,12 @@
 # trading.py
 # ─────────────────────────────────────────────────────────────────────────────
-#   *** 2025‑07‑15  patch‑6 ***
+#   *** 2025‑07‑15  patch‑7 ***
 #
-#   Изменено только поведение сигналов:
-#     • TPL  / TPS
-#     • RSI30 / RSI20 / RSI70 / RSI80
-#
-#   Все ограничения cooldown, retry‑clearing, лимиты MAX_QTY и логика
-#   LONG / SHORT / averaging оставлены без изменений.
+#   Что изменено по сравнению с patch‑4:
+#     1. Новая логика TPL / TPS и RSI‑сигналов (patch‑6).
+#     2. Единый cooldown 30 минут для повторных TPL / TPS
+#        на CNY‑9.25 и NG‑7.25.
+#   Остальной функционал (retry‑clearing, max‑qty, flip/avg) сохранён.
 # ─────────────────────────────────────────────────────────────────────────────
 
 import asyncio, time
@@ -15,7 +14,7 @@ from telegram_logger import send_telegram_log
 from config import TICKER_MAP, START_QTY, ADD_QTY, MAX_QTY
 from alor   import place_order, get_position_snapshot, get_current_positions
 
-# ──────────── глобальные состояния ──────────────────────────────────────────
+# ─────────── глобальные состояния ──────────────────────────────────────────
 current_positions            = {v["trade"]: 0 for v in TICKER_MAP.values()}
 entry_prices:      dict[str, float] = {}
 
@@ -25,7 +24,7 @@ tp_block_until:    dict[str, float] = {}
 
 RSI_COOLDOWN_SEC  = 60 * 60                       # 1 ч
 TP_COOLDOWN_SEC   = {"CNY-9.25": 30 * 60,
-                     "NG-7.25" : 15 * 60}
+                     "NG-7.25" : 30 * 60}         # обе площадки → 30 мин
 TP_BLOCK_SEC      = {"CNY-9.25": 30 * 60,
                      "NG-7.25" : 10 * 60}
 
@@ -42,7 +41,8 @@ async def execute_market_order(sym: str, side: str, qty: int,
             if ("ExchangeUndefinedError" in err and "клиринг" in err.lower()) \
                or ("session" in err.lower() and "closed" in err.lower()):
                 await send_telegram_log(
-                    f"⏳ {sym}: {err.strip() or 'clearing'} retry {attempt}/{retries}")
+                    f"⏳ {sym}: {err.strip() or 'clearing'} "
+                    f"retry {attempt}/{retries}")
                 await asyncio.sleep(delay)
                 continue
             await send_telegram_log(f"❌ order {side}/{sym}/{qty}: {err}")
@@ -65,13 +65,13 @@ async def place_and_ensure(sym: str, side: str, qty: int,
             if abs(after - before) >= qty:
                 return res
         await send_telegram_log(
-            f"⏳ {sym}: order not filled (try {attempt}/{attempts}); retry "
-            f"in {delay//60} min")
+            f"⏳ {sym}: order not filled "
+            f"(attempt {attempt}/{attempts}); retry in {delay//60} min")
         await asyncio.sleep(delay)
     await send_telegram_log(f"⚠️ {sym}: unable to fill after {attempts} tries")
     return None
 
-# ═════════════════════ main entry point ═════════════════════════════════════
+# ═══════════════════ main entry point (сигналы) ═════════════════════════════
 async def process_signal(tv_tkr: str, sig: str):
     if tv_tkr not in TICKER_MAP:
         await send_telegram_log(f"⚠️ Unknown ticker {tv_tkr}")
@@ -89,13 +89,14 @@ async def process_signal(tv_tkr: str, sig: str):
     if sig_u in ("TPL", "TPS"):
         cd = TP_COOLDOWN_SEC[sym]
         if now - last_tp_signal.get(f"{sym}:{sig_u}", 0) < cd:
-            return {"status": "tp_cooldown"}
+            await send_telegram_log(f"⏳ {sig_u} ignored (30‑min CD)")
+            return {"status": "tp_cd"}
         last_tp_signal[f"{sym}:{sig_u}"] = now
 
-        if sig_u == "TPL":                         # хотим или усилить SHORT
+        if sig_u == "TPL":                       # хотим усилить / открыть SHORT
             side = "sell"
             qty  = abs(pos) + half if pos > 0 else half
-        else:                                     # TPS → хотим усилить LONG
+        else:                                   # TPS → LONG
             side = "buy"
             qty  = abs(pos) + half if pos < 0 else half
 
@@ -105,35 +106,37 @@ async def process_signal(tv_tkr: str, sig: str):
             if current_positions[sym] == 0:
                 entry_prices.pop(sym, None)
             tp_block_until[sym] = now + TP_BLOCK_SEC[sym]
+            await send_telegram_log(
+                f"💰 {sig_u} {sym}: {side} {qty} @ {res['price']:.2f}")
         return {"status": sig_u.lower(), "filled": qty}
 
-    # ─────────────────────────── RSI 30 / 20 ────────────────────────────
+    # ──────────────── RSI 30 / 20  (усиление long) ──────────────────────
     if sig_u == "RSI30":
-        if pos > 0:                                # long → докупить ½
-            side, qty = ("buy", half)
-        else:                                      # short / flat → закрыть short + ½ long
-            side, qty = ("buy", abs(pos) + half)
+        if pos > 0:
+            side, qty = ("buy", half)                    # докупить ½
+        else:
+            side, qty = ("buy", abs(pos) + half)         # закрыть short + ½ long
         res = await place_and_ensure(sym, side, qty)
         return {"status": "rsi30", "filled": qty}
 
-    if sig_u == "RSI20":                           # всегда +½ long
+    if sig_u == "RSI20":                                 # всегда +½ long
         res = await place_and_ensure(sym, "buy", half)
         return {"status": "rsi20", "filled": half}
 
-    # ─────────────────────────── RSI 70 / 80 ────────────────────────────
+    # ──────────────── RSI 70 / 80  (усиление short) ─────────────────────
     if sig_u == "RSI70":
-        if pos > 0:                                # long → закрыть полностью
-            side, qty = ("sell", abs(pos))
-        else:                                      # short / flat → ещё ½ short
-            side, qty = ("sell", half)
+        if pos > 0:
+            side, qty = ("sell", abs(pos))               # закрыть long полностью
+        else:
+            side, qty = ("sell", half)                   # ещё ½ short
         res = await place_and_ensure(sym, side, qty)
         return {"status": "rsi70", "filled": qty}
 
-    if sig_u == "RSI80":                           # всегда +½ short
+    if sig_u == "RSI80":                                 # +½ short
         res = await place_and_ensure(sym, "sell", half)
         return {"status": "rsi80", "filled": half}
 
-    # ───────────────── LONG / SHORT / avg / flip (не трогали) ───────────
+    # ─────────────────────── LONG / SHORT (ориг. логика) ────────────────
     if sig_u not in ("LONG", "SHORT"):
         await send_telegram_log(f"⚠️ Unknown action {sig_u}")
         return {"status": "invalid_action"}
@@ -144,10 +147,10 @@ async def process_signal(tv_tkr: str, sig: str):
 
     # flip
     if pos * dir_ < 0:
-        qty = abs(pos) + START_QTY[sym]
+        qty = abs(pos) + start
         res = await place_and_ensure(sym, side, qty)
         if res:
-            current_positions[sym] = dir_ * START_QTY[sym]
+            current_positions[sym] = dir_ * start
             entry_prices[sym]      = res["price"]
             tp_block_until.pop(sym, None)
         return {"status": "flip"}
@@ -165,9 +168,9 @@ async def process_signal(tv_tkr: str, sig: str):
 
     # open
     if pos == 0:
-        res = await place_and_ensure(sym, side, START_QTY[sym])
+        res = await place_and_ensure(sym, side, start)
         if res:
-            current_positions[sym] = dir_ * START_QTY[sym]
+            current_positions[sym] = dir_ * start
             entry_prices[sym]      = res["price"]
         return {"status": "open"}
 
