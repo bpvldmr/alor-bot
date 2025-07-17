@@ -1,38 +1,40 @@
 # trading.py
 # ─────────────────────────────────────────────────────────────────────────────
-#   *** 2025‑07‑17  patch‑11 ***
+#   *** 2025‑07‑17  patch‑12 ***
 #
-#   Обновление: симметричная «flip‑&‑half» логика для ВСЕХ RSI‑сигналов.
+#   Раздельные ограничения:
+#     • TP‑cooldown (TPL/TPS) НЕ блокирует RSI.
+#     • Каждый RSI‑тип имеет собственный cooldown‑ключ (нет взаимных блоков).
+#     • tp_block_until legacy (не используется в расчётах).
 #
-#   Сводка действий (qty в расчёте от START_QTY[sym] → half = START//2 ≥1):
+#   Flip‑&‑half логика для всех сигналов:
+#     TPL, TPS, RSI<30, RSI<20, RSI>70, RSI>80  (см. таблицу ниже).
+#
+#   qty: half = max(START_QTY[sym] // 2, 1)
 #
 #   ┌─────────┬────────────────────────────────────────────────────────────────┐
 #   │ Сигнал  │ Действие                                                      │
 #   ├─────────┼────────────────────────────────────────────────────────────────┤
-#   │ TPL     │ Если pos>0 (лонг)  → SELL abs(pos)+half  (flip в шорт½).      │
-#   │         │ Иначе (шорт/flat)  → SELL half        (усилить/открыть шорт½). │
+#   │ TPL     │ pos>0 → SELL abs(pos)+half  (flip long→short½)                │
+#   │         │ pos≤0 → SELL half            (усилить/откр. short½)           │
 #   ├─────────┼────────────────────────────────────────────────────────────────┤
-#   │ TPS     │ Если pos<0 (шорт)  → BUY  abs(pos)+half  (flip в лонг½).       │
-#   │         │ Иначе (лонг/flat)  → BUY  half         (усилить/откр. лонг½).  │
+#   │ TPS     │ pos<0 → BUY  abs(pos)+half  (flip short→long½)                │
+#   │         │ pos≥0 → BUY  half            (усилить/откр. long½)            │
 #   ├─────────┼────────────────────────────────────────────────────────────────┤
-#   │ RSI<30  │ Если pos<0         → BUY  abs(pos)+half (flip в лонг½).        │
-#   │         │ Иначе              → BUY  half          (усилить/откр. лонг½). │
+#   │ RSI<30  │ pos<0 → BUY  abs(pos)+half  (flip short→long½)                │
+#   │         │ иначе BUY half                                                  │
 #   ├─────────┼────────────────────────────────────────────────────────────────┤
-#   │ RSI<20  │ Аналогично RSI<30 (flip при шорте, иначе +½ лонг).             │
+#   │ RSI<20  │ pos<0 → BUY  abs(pos)+half  (flip short→long½)                │
+#   │         │ иначе BUY half                                                  │
 #   ├─────────┼────────────────────────────────────────────────────────────────┤
-#   │ RSI>70  │ Если pos>0         → SELL abs(pos)+half (flip в шорт½).        │
-#   │         │ Иначе              → SELL half         (усилить/откр. шорт½).  │
+#   │ RSI>70  │ pos>0 → SELL abs(pos)+half  (flip long→short½)                │
+#   │         │ иначе SELL half                                                 │
 #   ├─────────┼────────────────────────────────────────────────────────────────┤
-#   │ RSI>80  │ Аналогично RSI>70 (flip при лонге, иначе +½ шорт).             │
+#   │ RSI>80  │ pos>0 → SELL abs(pos)+half  (flip long→short½)                │
+#   │         │ иначе SELL half                                                 │
 #   └─────────┴────────────────────────────────────────────────────────────────┘
 #
-#   Cooldown / блокировки:
-#     • TPL / TPS  → TP_COOLDOWN_SEC (по инструментам; 30m дефолт).
-#     • После TP   → tp_block_until[sym] на TP_BLOCK_SEC[sym] (блокирует RSI<30/RSI>70).
-#     • RSI<30 / RSI>70  → подчиняются RSI_COOLDOWN_SEC (1h) + tp_block.
-#     • RSI<20 / RSI>80  → без tp_block / cooldown (как в прошлых версиях).
-#
-#   Остальной код (LONG/SHORT base логика, лимиты, retry‑clearing) без изменений.
+#   LONG / SHORT базовая логика (flip / avg / open) без изменений.
 # ─────────────────────────────────────────────────────────────────────────────
 
 import asyncio, time
@@ -44,19 +46,14 @@ from alor   import place_order, get_position_snapshot, get_current_positions
 current_positions            = {v["trade"]: 0 for v in TICKER_MAP.values()}
 entry_prices:      dict[str, float] = {}
 
-last_rsi_signal:   dict[str, float] = {}   # ключи: "SYM:RSI<30" / "SYM:RSI>70" / ...
+last_rsi_signal:   dict[str, float] = {}   # "SYM:RSI<30" / "SYM:RSI>70" / ...
 last_tp_signal:    dict[str, float] = {}   # "SYM:TPL" / "SYM:TPS"
-tp_block_until:    dict[str, float] = {}   # "SYM" → ts  (блок RSI>70 / RSI<30)
 
-RSI_COOLDOWN_SEC  = 60 * 60                       # 1 час
+# legacy: ранее блокировали RSI после TP; теперь НЕ используем, но держим для совм.
+tp_block_until:    dict[str, float] = {}
 
-# единый TP‑cooldown 30 мин для всех тикеров (при желании переопределите ниже)
-TP_COOLDOWN_SEC   = {v["trade"]: 30 * 60 for v in TICKER_MAP.values()}
-
-# блок RSI>70 / RSI<30 после TP; дефолт 10 мин, отдельные override
-TP_BLOCK_SEC      = {v["trade"]: 10 * 60 for v in TICKER_MAP.values()}
-TP_BLOCK_SEC["CNY-9.25"] = 30 * 60    # пример
-TP_BLOCK_SEC["NG-7.25"]  = 10 * 60
+RSI_COOLDOWN_SEC  = 60 * 60                       # 1 час (для каждого RSI‑типа отдельно)
+TP_COOLDOWN_SEC   = {v["trade"]: 30 * 60 for v in TICKER_MAP.values()}  # TPL/TPS CD
 
 # ───────── util: маркет-ордер с retry при «клиринге» ────────────────────────
 async def execute_market_order(sym: str, side: str, qty: int,
@@ -139,7 +136,7 @@ def _normalize_signal(raw: str) -> str:
     """
     Приводим к верхнему регистру, убираем пробелы.
     НИКАКИХ алиасов: принимаются только строки с символами '<' либо '>'.
-    Примеры: 'rsi<30' -> 'RSI<30'; 'RSI30' останется 'RSI30' (и будет invalid).
+    Пример: 'rsi<30' -> 'RSI<30'; 'RSI30' останется 'RSI30' (и будет invalid).
     """
     return raw.strip().upper().replace(" ", "")
 
@@ -177,18 +174,12 @@ async def process_signal(tv_tkr: str, sig: str):
         res = await place_and_ensure(sym, side, qty)
         if res:
             _apply_position_update(sym, pos, side, qty, res["price"])
-            tp_block_until[sym] = now + TP_BLOCK_SEC.get(sym, 0)
             await send_telegram_log(
                 f"💰 {sig_upper} {sym}: {side} {qty} @ {res['price']:.2f}")
         return {"status": sig_upper.lower(), "filled": qty}
 
     # ───────────────────────────── RSI<30 / RSI>70 ─────────────────────
     if sig_upper in ("RSI<30", "RSI>70"):
-        # блок после TP
-        if now < tp_block_until.get(sym, 0):
-            await send_telegram_log("⏳ RSI blocked after TP")
-            return {"status": "rsi_blocked_by_tp"}
-
         key = f"{sym}:{sig_upper}"
         if now - last_rsi_signal.get(key, 0) < RSI_COOLDOWN_SEC:
             return {"status": "rsi_cooldown"}
@@ -260,7 +251,6 @@ async def process_signal(tv_tkr: str, sig: str):
         res = await place_and_ensure(sym, side, qty)
         if res:
             _apply_position_update(sym, pos, side, qty, res["price"])
-            tp_block_until.pop(sym, None)
             await send_telegram_log(f"🟢 flip {sym}")
         return {"status": "flip"}
 
