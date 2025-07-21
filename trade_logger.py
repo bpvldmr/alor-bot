@@ -1,17 +1,22 @@
 # trade_logger.py
 # ────────────────────────────────────────────────────────────────
-# 2025‑07‑21  patch‑3
+# 2025‑07‑21  patch‑4
 #
-# • register_trade теперь принимает action = "buy" / "sell"
-#   (совместимо с "long" / "short").
-# • Логика PnL и отчётов не изменилась.
+# ✓ Используем calc_pnl() из pnl_calc.py — единый центр расчёта.
+# ✓ Ловим price == 0.0 и пишем warning в лог.
+# ✓ Добавили asyncio‑Lock, чтобы избежать гонок при параллельных вызовах.
+# ✓ Логика сообщений и агрегирования PnL сохранена.
 # ────────────────────────────────────────────────────────────────
-
+import asyncio
 from collections import defaultdict
 from datetime import datetime
 
 from telegram_logger import send_telegram_log
 from loguru          import logger
+from pnl_calc        import calc_pnl           # ← централизованный расчёт PnL
+
+# ────────── shared‑state + защита от гонок ──────────────────────────────────
+lock = asyncio.Lock()   # один на весь модуль
 
 pnl_history: list[tuple[datetime, float]] = []           # (closed_at, pnl)
 instrument_pnl:   defaultdict[str, float] = defaultdict(float)
@@ -21,45 +26,50 @@ open_positions:   dict[str, tuple[int, float]] = {}      # ticker → (qty, entr
 
 async def register_trade(
     ticker: str,
-    action: str,          # "buy"/"sell"  (или "long"/"short" для совместимости)
+    action: str,      # "buy"/"sell"  (или "long"/"short")
     qty: int,
     price: float
 ) -> None:
     """
-    Регистрирует ЛЮБУЮ исполненную заявку. Когда позиция по тикеру
-    возвращается к нулю → фиксируется итоговый PnL и шлётся отчёт.
+    Регистрирует ЛЮБУЮ исполненную заявку.
+    Когда позиция = 0  →  фиксируем PnL и шлём отчёт.
     """
+    if price == 0.0:
+        logger.warning(f"[{ticker}] Price is 0.0 — проверь /trades!")
     action_lc   = action.lower()
     side_coeff  = 1 if action_lc in ("buy", "long") else -1
     qty_signed  = qty * side_coeff
 
-    pos_qty, pos_entry = open_positions.get(ticker, (0, 0.0))
-    new_qty            = pos_qty + qty_signed
+    async with lock:
+        pos_qty, pos_entry = open_positions.get(ticker, (0, 0.0))
+        new_qty            = pos_qty + qty_signed
 
-    # 1. Открытие новой позиции
-    if pos_qty == 0 and new_qty != 0:
-        open_positions[ticker] = (new_qty, price)
-        logger.debug(f"[{ticker}] opened {new_qty:+} @ {price}")
-        return
+        # 1️⃣ Открытие позиции
+        if pos_qty == 0 and new_qty != 0:
+            open_positions[ticker] = (new_qty, price)
+            logger.debug(f"[{ticker}] opened {new_qty:+} @ {price}")
+            return
 
-    # 2. Частичное закрытие / докупка
-    if new_qty != 0:
-        if (new_qty > 0 and pos_qty > 0) or (new_qty < 0 and pos_qty < 0):
-            total_cost = pos_entry * abs(pos_qty) + price * abs(qty_signed)
-            open_positions[ticker] = (new_qty, total_cost / abs(new_qty))
-        else:
-            open_positions[ticker] = (new_qty, pos_entry)
-        logger.debug(f"[{ticker}] adjusted to {new_qty:+} @ {open_positions[ticker][1]:.2f}")
-        return
+        # 2️⃣ Частичное закрытие / докупка
+        if new_qty != 0:
+            # усреднение в ту же сторону
+            if (new_qty > 0 and pos_qty > 0) or (new_qty < 0 and pos_qty < 0):
+                total_cost = pos_entry * abs(pos_qty) + price * abs(qty_signed)
+                open_positions[ticker] = (new_qty, total_cost / abs(new_qty))
+            else:
+                # частичное закрытие — entry остаётся прежним
+                open_positions[ticker] = (new_qty, pos_entry)
+            logger.debug(f"[{ticker}] adjusted to {new_qty:+} @ {open_positions[ticker][1]:.2f}")
+            return
 
-    # 3. Полное закрытие позиции
-    await _finalize_closed_trade(
-        ticker,
-        closed_qty=qty_signed,    # знак важен
-        entry_price=pos_entry,
-        exit_price=price
-    )
-    open_positions.pop(ticker, None)
+        # 3️⃣ Полное закрытие
+        await _finalize_closed_trade(
+            ticker,
+            closed_qty=qty_signed,      # знак важен
+            entry_price=pos_entry,
+            exit_price=price
+        )
+        open_positions.pop(ticker, None)
 
 
 async def _finalize_closed_trade(
@@ -68,9 +78,8 @@ async def _finalize_closed_trade(
     entry_price: float,
     exit_price: float
 ):
-    """Считаем итоговый PnL и отправляем два сообщения."""
-    pnl = round((exit_price - entry_price) * closed_qty * -1, 2)
-    pct = round((pnl / (entry_price * abs(closed_qty))) * 100, 2) if entry_price else 0.0
+    """Считаем PnL (через calc_pnl) и отправляем сообщения."""
+    pnl, pct = calc_pnl(entry_price, exit_price, closed_qty)
     pnl_history.append((datetime.now(), pnl))
 
     instrument_pnl[ticker]   += pnl
