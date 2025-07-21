@@ -1,26 +1,27 @@
 # trading.py
 # ─────────────────────────────────────────────────────────────────────────────
-#   *** 2025‑07‑17  patch‑13 ***
+#   *** 2025‑07‑21  patch‑16 ***
 #
-#   ДОБАВЛЕНО ОДНО: после каждой успешно исполненной сделки
-#   вызывается balances.log_balance() — бот шлёт отчёт баланса в Telegram.
+#   ИЗМЕНЕНО ТОЛЬКО ОДНО:
+#       • execute_market_order теперь берёт фактическую цену сделки
+#         через /trades (get_last_trade_price), а не из place_order.
 #
-#   Вся логика сигналов (TPL, TPS, RSI‑линии, LONG/SHORT) осталась
-#   неизменной по сравнению с вашим patch‑12.
+#   Всё остальное (логика сигналов, log_balance и т.д.) оставлено без изменений.
 # ─────────────────────────────────────────────────────────────────────────────
 
 import asyncio, time
 from telegram_logger import send_telegram_log
 from config import TICKER_MAP, START_QTY, ADD_QTY, MAX_QTY
 from alor   import place_order, get_position_snapshot, get_current_positions
-from balance import log_balance                     # ← ДОБАВЛЕНО
+from balance  import log_balance
+from pnl_calc import get_last_trade_price            # ← новое
 
 # ──────────── глобальные состояния ──────────────────────────────────────────
 current_positions            = {v["trade"]: 0 for v in TICKER_MAP.values()}
 entry_prices:      dict[str, float] = {}
 
-last_rsi_signal:   dict[str, float] = {}   # "SYM:RSI<30" / "SYM:RSI>70" / ...
-last_tp_signal:    dict[str, float] = {}   # "SYM:TPL" / "SYM:TPS"
+last_rsi_signal:   dict[str, float] = {}
+last_tp_signal:    dict[str, float] = {}
 
 tp_block_until:    dict[str, float] = {}   # legacy (не используется)
 
@@ -30,12 +31,16 @@ TP_COOLDOWN_SEC   = {v["trade"]: 30 * 60 for v in TICKER_MAP.values()}
 # ───────── util: маркет‑ордер с retry при «клиринге» ────────────────────────
 async def execute_market_order(sym: str, side: str, qty: int,
                                *, retries: int = 3, delay: int = 300):
-    """Маркет‑ордер с повтором при клиринге."""
+    """Маркет‑ордер с повтором при клиринге + фактическая цена из /trades."""
     for attempt in range(1, retries + 1):
-        res = await place_order({"side": side.upper(),
-                                 "qty":  qty,
-                                 "instrument": sym,
-                                 "symbol":     sym})
+        res = await place_order({
+            "side": side.upper(),
+            "qty":  qty,
+            "instrument": sym,
+            "symbol":     sym
+        })
+
+        # ─── обработка ошибок ────────────────────────────────────────────
         if "error" in res:
             err = str(res["error"])
             if ("ExchangeUndefinedError" in err and "клиринг" in err.lower()) \
@@ -46,9 +51,19 @@ async def execute_market_order(sym: str, side: str, qty: int,
                 continue
             await send_telegram_log(f"❌ order {side}/{sym}/{qty}: {err}")
             return None
+
+        # ─── ждём, чтобы сделка попала в историю /trades ────────────────
         await asyncio.sleep(30)
-        snap = await get_position_snapshot(sym)
-        return {"price": res.get("price", 0.0), "position": snap.get("qty", 0)}
+
+        # ─── позиция и фактическая цена исполнения ──────────────────────
+        snap  = await get_position_snapshot(sym)
+        price = await get_last_trade_price(sym) or res.get("price", 0.0)
+
+        return {
+            "price":    price,
+            "position": snap.get("qty", 0)
+        }
+
     await send_telegram_log(f"⚠️ {sym}: clearing retries exceeded")
     return None
 
@@ -120,7 +135,7 @@ async def process_signal(tv_tkr: str, sig: str):
         res = await place_and_ensure(sym, side, qty)
         if res:
             _apply_position_update(sym, pos, side, qty, res["price"])
-            await log_balance()                            # ← НОВОЕ
+            await log_balance()
             await send_telegram_log(
                 f"💰 {sig_upper} {sym}: {side} {qty} @ {res['price']:.2f}")
         return {"status": sig_upper.lower(), "filled": qty}
@@ -146,7 +161,7 @@ async def process_signal(tv_tkr: str, sig: str):
         res = await place_and_ensure(sym, side, qty)
         if res:
             _apply_position_update(sym, pos, side, qty, res["price"])
-            await log_balance()                            # ← НОВОЕ
+            await log_balance()
             await send_telegram_log(f"🔔 {sig_upper} {sym}: {side} {qty}")
         return {"status": sig_upper.lower()}
 
@@ -159,7 +174,7 @@ async def process_signal(tv_tkr: str, sig: str):
         res = await place_and_ensure(sym, side, qty)
         if res:
             _apply_position_update(sym, pos, side, qty, res["price"])
-            await log_balance()                            # ← НОВОЕ
+            await log_balance()
             await send_telegram_log(f"RSI<20 {sym}: buy {qty}")
         return {"status": "rsi_lt20"}
 
@@ -171,7 +186,7 @@ async def process_signal(tv_tkr: str, sig: str):
         res = await place_and_ensure(sym, side, qty)
         if res:
             _apply_position_update(sym, pos, side, qty, res["price"])
-            await log_balance()                            # ← НОВОЕ
+            await log_balance()
             await send_telegram_log(f"RSI>80 {sym}: sell {qty}")
         return {"status": "rsi_gt80"}
 
@@ -189,7 +204,7 @@ async def process_signal(tv_tkr: str, sig: str):
         res = await place_and_ensure(sym, side, qty)
         if res:
             _apply_position_update(sym, pos, side, qty, res["price"])
-            await log_balance()                            # ← НОВОЕ
+            await log_balance()
             await send_telegram_log(f"🟢 flip {sym}")
         return {"status": "flip"}
 
@@ -202,7 +217,7 @@ async def process_signal(tv_tkr: str, sig: str):
         res = await place_and_ensure(sym, side, ADD_QTY[sym])
         if res:
             _apply_position_update(sym, pos, side, ADD_QTY[sym], res["price"])
-            await log_balance()                            # ← НОВОЕ
+            await log_balance()
             await send_telegram_log(f"➕ avg {sym}: {new:+}")
         return {"status": "avg"}
 
@@ -211,11 +226,11 @@ async def process_signal(tv_tkr: str, sig: str):
         res = await place_and_ensure(sym, side, START_QTY[sym])
         if res:
             _apply_position_update(sym, pos, side, START_QTY[sym], res["price"])
-            await log_balance()                            # ← НОВОЕ
+            await log_balance()
             await send_telegram_log(f"✅ open {sym} {START_QTY[sym]:+}")
         return {"status": "open"}
 
     return {"status": "noop"}
 
 
-__all__ = ["total_profit", "initial_balance"]
+__all__ = ["process_signal"]
