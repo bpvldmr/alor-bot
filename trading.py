@@ -13,7 +13,7 @@ import asyncio, time
 from telegram_logger import send_telegram_log
 from config import TICKER_MAP, START_QTY, ADD_QTY, MAX_QTY
 from alor   import place_order, get_position_snapshot, get_current_positions
-from balances import log_balance                     # ← ДОБАВЛЕНО
+from balance import log_balance                     # ← ДОБАВЛЕНО
 
 # ──────────── глобальные состояния ──────────────────────────────────────────
 current_positions            = {v["trade"]: 0 for v in TICKER_MAP.values()}
