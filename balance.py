@@ -4,8 +4,14 @@ from loguru import logger
 import httpx
 import locale
 
-# локаль для разделителей «1 234 567,89»
-locale.setlocale(locale.LC_NUMERIC, "ru_RU.UTF-8")
+# ─────────────────────────── локаль для разделителей «1 234 567,89» ───────────────────────────
+try:
+    # На большинстве серверов ru_RU.UTF-8 не предустановлен; ловим ошибку и падаем на дефолт
+    locale.setlocale(locale.LC_NUMERIC, "ru_RU.UTF-8")
+except locale.Error:
+    logger.warning("Locale ru_RU.UTF-8 not found, using the default locale")
+    locale.setlocale(locale.LC_NUMERIC, "")  # пустая строка → системная локаль
+# ────────────────────────────────────────────────────────────────────────────────────────────────
 
 router = APIRouter()
 
@@ -79,7 +85,7 @@ async def get_balance():
         logger.exception("Ошибка при получении баланса")
         raise HTTPException(status_code=502, detail="Ошибка запроса к Alor")
 
-    await send_balance_to_telegram(data)          # ← profit_total / base_balance необязательны
+    await send_balance_to_telegram(data)          # profit_total / base_balance необязательны
     balance = data.get("cashAvailableForWithdrawal", 0.0)
     return {"balance": balance}
 
