@@ -1,23 +1,19 @@
 # balance.py
 # ─────────────────────────────────────────────────────────────────────────────
-# 2025‑07‑21  patch‑2
+# 2025‑07‑22  patch‑3
 #
-# • Добавлена совместимая обёртка async log_balance() — теперь trading.py
-#   может импортировать её без ошибки.
-# • Логика расчёта и отправки отчёта не изменена.
+# • Добавлена функция fetch_summary()  — делает _только_ HTTP‑запрос Alor
+#   и возвращает свежий summary **без** отправки в Telegram.
+# • log_balance() теперь:
+#       1) ждёт 2 секунды (чтобы биржа актуализировала данные после сделки);
+#       2) вызывает fetch_summary();
+#       3) шлёт отчёт в Telegram.
+# • REST‑эндпоинты /balance и /debug_balance переиспользуют fetch_summary().
 # ─────────────────────────────────────────────────────────────────────────────
+import asyncio, locale, httpx
 from fastapi import APIRouter, HTTPException
 from auth     import get_access_token
 from loguru   import logger
-import httpx, locale
-
-# ────────── локаль «1 234 567,89» ───────────────────────────────────────────
-try:
-    locale.setlocale(locale.LC_NUMERIC, "ru_RU.UTF-8")
-except locale.Error:
-    logger.warning("Locale ru_RU.UTF-8 not found, using default")
-    locale.setlocale(locale.LC_NUMERIC, "")
-# ────────────────────────────────────────────────────────────────────────────
 
 router = APIRouter()
 
@@ -26,10 +22,14 @@ ACCOUNT_ID     = "7502QAB"
 TELEGRAM_TOKEN = "7610150119:AAGMzDYUdcI6QQuvt-Vsg8U4s1VSYarLIe0"
 CHAT_ID        = "205721225"
 
-# ───────── helper: строим текст отчёта ──────────────────────────────────────
-def build_portfolio_summary(summary: dict,
-                            profit_total: float = 0.0,
-                            base_balance: float = 1.0) -> str:
+# ───────── локаль для «1 234 567,89» ────────────────────────────────────────
+try:
+    locale.setlocale(locale.LC_NUMERIC, "ru_RU.UTF-8")
+except locale.Error:
+    logger.warning("Locale ru_RU.UTF-8 not found, fallback to default")
+
+# ───────── HELPERS ──────────────────────────────────────────────────────────
+def build_portfolio_summary(summary: dict) -> str:
     buying_power     = summary.get("buyingPower", 0)
     portfolio_value  = summary.get("portfolioEvaluation", 0)
     force_close_risk = summary.get("riskBeforeForcePositionClosing", 0)
@@ -43,69 +43,52 @@ def build_portfolio_summary(summary: dict,
         f"💵 *В RUB:* {rub_funds:,.2f} ₽"
     )
 
-# ───────── send to Telegram ─────────────────────────────────────────────────
-async def send_balance_to_telegram(summary: dict,
-                                   profit_total: float = 0.0,
-                                   base_balance: float = 1.0):
+async def send_balance_to_telegram(summary: dict) -> None:
     try:
-        report  = build_portfolio_summary(summary, profit_total, base_balance)
+        report  = build_portfolio_summary(summary)
         url     = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         payload = {"chat_id": CHAT_ID, "text": report, "parse_mode": "Markdown"}
 
         async with httpx.AsyncClient() as client:
-            resp = await client.post(url, json=payload)
-            resp.raise_for_status()
+            await client.post(url, json=payload)
             logger.info("📤 Баланс отправлен в Telegram")
     except Exception:
         logger.exception("❌ Ошибка при отправке баланса в Telegram")
 
-# ───────── PUBLIC: REST‑ендпоинты ───────────────────────────────────────────
-@router.get("/balance")
-async def get_balance():
+# ───────── CORE: только запрос Alor ─────────────────────────────────────────
+async def fetch_summary() -> dict:
     token   = await get_access_token()
     url     = f"{BASE_URL}/md/v2/Clients/MOEX/{ACCOUNT_ID}/summary"
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(url, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=502, detail=f"Ошибка запроса: {e.response.status_code}")
-    except Exception:
-        logger.exception("Ошибка при получении баланса")
-        raise HTTPException(status_code=502, detail="Ошибка запроса к Alor")
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(url, headers=headers)
+        resp.raise_for_status()
+        return resp.json()
 
-    await send_balance_to_telegram(data)
-    return {"balance": data.get("cashAvailableForWithdrawal", 0.0)}
+# ───────── PUBLIC: вызывается trading.py после сделки ───────────────────────
+async def log_balance(delay_sec: int = 2) -> None:
+    """Ждём delay_sec, берём самый свежий summary и шлём в Telegram."""
+    try:
+        await asyncio.sleep(delay_sec)            # даём бирже применить сделку
+        summary = await fetch_summary()
+        await send_balance_to_telegram(summary)
+    except Exception:
+        logger.exception("log_balance failed")
+
+# ───────── REST‑эндпоинты (для ручных запросов) ────────────────────────────
+@router.get("/balance")
+async def get_balance():
+    try:
+        summary = await fetch_summary()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(502, f"Ошибка запроса: {e.response.status_code}")
+    await send_balance_to_telegram(summary)
+    return {"balance": summary.get("cashAvailableForWithdrawal", 0.0)}
 
 @router.get("/debug_balance")
 async def debug_balance():
-    token   = await get_access_token()
-    url     = f"{BASE_URL}/md/v2/Clients/MOEX/{ACCOUNT_ID}/summary"
-    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(url, headers=headers)
-            resp.raise_for_status()
-            return resp.json()
+        return await fetch_summary()
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=502, detail=f"Ошибка запроса: {e.response.status_code}")
-    except Exception:
-        logger.exception("Ошибка при отладке запроса")
-        raise HTTPException(status_code=502, detail="Ошибка запроса к Alor")
-
-# ───────── совместимость: log_balance ───────────────────────────────────────
-async def log_balance() -> None:
-    """
-    Совместимая обёртка для trading.py.
-    Просто вызывает get_balance() чтобы сгенерировать отчёт.
-    """
-    try:
-        await get_balance()
-    except Exception:
-        # get_balance уже залогирует и пробросит детали
-        pass
-# ────────────────────────────────────────────────────────────────────────────
+        raise HTTPException(502, f"Ошибка запроса: {e.response.status_code}")
