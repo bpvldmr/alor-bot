@@ -1,19 +1,11 @@
 # trading.py
 # ─────────────────────────────────────────────────────────────────────────────
-# 2025-08-14  patch-27
-#
-# • TPL/TPS:
-#     ─ первый сигнал всегда flip + START_QTY
-#     ─ повторный подряд (тот же тип) → чистое усреднение ADD_QTY
-#
-# • RSI 30/70:
-#     ─ если пришёл после TPL/TPS и позиция уже в направлении сигнала → усреднение ADD_QTY
-#     ─ иначе стандартно: flip (если противоположная) или START_QTY (если flat)
-#
-# • LONG/SHORT: логика не изменялась.
-# • TPL2/TPS2: не используются (игнор).
-# • MAX_QTY: контроль перед любой отправкой заявки.
-# • Диагностика в TG: реальное start/add/max/pos на момент сигнала.
+# ВАЖНО: Остальная логика НЕ тронута:
+#   ─ TPL/TPS: первый сигнал → flip + START_QTY; повторный подряд → усреднение ADD_QTY.
+#   ─ RSI 30/70: если уже в направлении (или после TP в ту же сторону) → ADD_QTY,
+#                 иначе flip/START_QTY.
+#   ─ RSI 20/80, LONG/SHORT — как было.
+#   ─ TPL2/TPS2 — игнорируются как «unknown action».
 # ─────────────────────────────────────────────────────────────────────────────
 import asyncio, time
 from telegram_logger import send_telegram_log
@@ -42,23 +34,7 @@ RSI_CD_MAP = {
 }
 get_rsi_cooldown = lambda sym: RSI_CD_MAP.get(sym, RSI_COOLDOWN_SEC_DEFAULT)
 
-# ───────── helpers ──────────────────────────────────────────────────────────
-def exceeds_limit(sym: str, side: str, qty: int, cur_pos: int) -> bool:
-    new_pos = cur_pos + qty if side == "buy" else cur_pos - qty
-    return abs(new_pos) > MAX_QTY[sym]
-
-def update_and_check_cooldown(sym: str, sig: str, now: float, cd: int) -> bool:
-    """
-    True  → cooldown ещё активен (сигнал игнорируем),
-    False → можно исполнять (и одновременно ставим новую метку времени).
-    """
-    key  = f"{sym}:{sig}"
-    prev = last_signal_ts.get(key, 0)
-    if prev and now - prev < cd:
-        return True
-    last_signal_ts[key] = now
-    return False
-
+# ───────── utils / helpers ──────────────────────────────────────────────────
 def _normalize_signal(raw: str) -> str:
     return raw.strip().upper().replace(" ", "")
 
@@ -72,7 +48,20 @@ def _apply_position_update(sym: str, pos_before: int, side: str,
         entry_prices[sym] = fill_price
     return new_pos
 
-# ───────── биржевые утилы ───────────────────────────────────────────────────
+def cap_qty_to_max(sym: str, side: str, desired_qty: int, cur_pos: int) -> int:
+    """
+    Режем желаемый объём так, чтобы |new_pos| <= MAX_QTY[sym].
+    Для buy:  new_pos = cur_pos + q  → q <= MAX - cur_pos
+    Для sell: new_pos = cur_pos - q  → q <= MAX + cur_pos
+    """
+    max_q = MAX_QTY[sym]
+    cap = (max_q - cur_pos) if side == "buy" else (max_q + cur_pos)
+    if cap < 0:
+        cap = 0
+    allowed = desired_qty if desired_qty <= cap else cap
+    return int(max(0, allowed))
+
+# ───────── биржевые I/O ─────────────────────────────────────────────────────
 async def execute_market_order(sym: str, side: str, qty: int,
                                *, retries: int = 3, delay: int = 300):
     """Создаём маркет-ордер, ждём фактическую цену из /trades и снапшот позиции."""
@@ -116,6 +105,33 @@ async def place_and_ensure(sym: str, side: str, qty: int,
     await send_telegram_log(f"⚠️ {sym}: unable to fill after {attempts} tries")
     return None
 
+async def place_with_limit(sym: str, side: str, desired_qty: int):
+    """
+    ЕДИНАЯ ТОЧКА ОТПРАВКИ ЗАЯВКИ С УЧЁТОМ MAX_QTY.
+    • перечитываем актуальную позицию
+    • режем объём до доступного
+    • если стало 0 — лог и выход
+    • ставим заявку, обновляем локальный стейт и баланс
+    • возвращаем {"price": ..., "qty": allowed} либо None
+    """
+    pos_live = (await get_current_positions()).get(sym, 0)
+    allowed  = cap_qty_to_max(sym, side, desired_qty, pos_live)
+    if allowed < desired_qty:
+        await send_telegram_log(
+            f"✂️ {sym}: cap {desired_qty}→{allowed} due to MAX {MAX_QTY[sym]} (pos {pos_live:+})"
+        )
+    if allowed == 0:
+        await send_telegram_log(f"🚫 {sym}: at MAX {MAX_QTY[sym]} (pos {pos_live:+}), skip")
+        return None
+
+    res = await place_and_ensure(sym, side, allowed)
+    if not res:
+        return None
+
+    _apply_position_update(sym, pos_live, side, allowed, res["price"])
+    await log_balance()
+    return {"price": res["price"], "qty": allowed}
+
 # ═════════════════════ main entry point ═════════════════════════════════════
 async def process_signal(tv_tkr: str, sig: str):
     if tv_tkr not in TICKER_MAP:
@@ -132,7 +148,7 @@ async def process_signal(tv_tkr: str, sig: str):
     add_q     = ADD_QTY[sym]
     max_q     = MAX_QTY[sym]
 
-    # Диагностика в TG — что реально видит код (чтобы ловить кейс «1 контракт»)
+    # Диагностика, чтобы отследить кейсы типа «почему 1 контракт»
     await send_telegram_log(
         f"⚙️ CFG {sym}: start={start_q} add={add_q} max={max_q} pos={pos:+} | signal={sig_upper}"
     )
@@ -161,18 +177,13 @@ async def process_signal(tv_tkr: str, sig: str):
                 qty  = (abs(pos) + start_q) if pos < 0 else start_q
                 last_tp_state[sym] = -1
 
-        if exceeds_limit(sym, side, qty, pos):
-            await send_telegram_log(f"❌ {sym}: max {max_q}")
-            return {"status": "limit"}
-
-        res = await place_and_ensure(sym, side, qty)
+        res = await place_with_limit(sym, side, qty)
         if res:
-            _apply_position_update(sym, pos, side, qty, res["price"])
-            await log_balance()
             await send_telegram_log(
-                f"💰 {sig_upper} {sym}: {side} {qty} @ {res['price']:.2f}"
+                f"💰 {sig_upper} {sym}: {side} {res['qty']} @ {res['price']:.2f}"
             )
-        return {"status": sig_upper.lower(), "filled": qty}
+            return {"status": sig_upper.lower(), "filled": res["qty"]}
+        return {"status": "order_failed"}
 
     # ───────────────────────── RSI<30 / RSI>70 ───────────────────────
     if sig_upper in ("RSI<30", "RSI>70"):
@@ -189,25 +200,19 @@ async def process_signal(tv_tkr: str, sig: str):
             qty = add_q
         else:
             # иначе стандарт: если противоположная позиция → переворот,
-            # если flat → открыть START_QTY
+            # если flat → открыть START_QTY, если уже по ходу → усреднение
             if pos == 0:
                 qty = start_q
             elif pos * want_dir < 0:
                 qty = abs(pos) + start_q
             else:
-                # уже в нужном направлении (без связи с TP) — тоже усредняем
                 qty = add_q
 
-        if exceeds_limit(sym, side, qty, pos):
-            await send_telegram_log(f"❌ {sym}: max {max_q}")
-            return {"status": "limit"}
-
-        res = await place_and_ensure(sym, side, qty)
+        res = await place_with_limit(sym, side, qty)
         if res:
-            _apply_position_update(sym, pos, side, qty, res["price"])
-            await log_balance()
-            await send_telegram_log(f"🔔 {sig_upper} {sym}: {side} {qty}")
-        return {"status": sig_upper.lower(), "filled": qty}
+            await send_telegram_log(f"🔔 {sig_upper} {sym}: {side} {res['qty']}")
+            return {"status": sig_upper.lower(), "filled": res["qty"]}
+        return {"status": "order_failed"}
 
     # ───────────────────────── RSI<20 / RSI>80 ───────────────────────
     if sig_upper in ("RSI<20", "RSI>80"):
@@ -225,20 +230,15 @@ async def process_signal(tv_tkr: str, sig: str):
         else:
             qty = abs(pos) + start_q
 
-        if exceeds_limit(sym, side, qty, pos):
-            await send_telegram_log(f"❌ {sym}: max {max_q}")
-            return {"status": "limit"}
-
-        res = await place_and_ensure(sym, side, qty)
+        res = await place_with_limit(sym, side, qty)
         if res:
-            _apply_position_update(sym, pos, side, qty, res["price"])
-            await log_balance()
-            await send_telegram_log(f"{sig_upper} {sym}: {side} {qty}")
-        return {"status": sig_upper.lower(), "filled": qty}
+            await send_telegram_log(f"{sig_upper} {sym}: {side} {res['qty']}")
+            return {"status": sig_upper.lower(), "filled": res["qty"]}
+        return {"status": "order_failed"}
 
     # ───────────────────────── LONG / SHORT (как было) ───────────────
     if sig_upper not in ("LONG", "SHORT"):
-        # TPL2/TPS2 и прочее — не используем
+        # TPL2/TPS2 и прочее — игнор/неизвестное действие
         await send_telegram_log(f"⚠️ Unknown action {sig_upper}")
         return {"status": "invalid_action"}
 
@@ -248,42 +248,30 @@ async def process_signal(tv_tkr: str, sig: str):
     # flip
     if pos * dir_ < 0:
         qty = abs(pos) + start_q
-        if exceeds_limit(sym, side, qty, pos):
-            await send_telegram_log(f"❌ {sym}: max {max_q}")
-            return {"status": "limit"}
-        res = await place_and_ensure(sym, side, qty)
+        res = await place_with_limit(sym, side, qty)
         if res:
-            _apply_position_update(sym, pos, side, qty, res["price"])
-            await log_balance()
-            await send_telegram_log(f"🟢 flip {sym}")
-        return {"status": "flip", "filled": qty}
+            await send_telegram_log(f"🟢 flip {sym} {res['qty']:+}")
+            return {"status": "flip", "filled": res["qty"]}
+        return {"status": "order_failed"}
 
     # averaging / repeat (по cooldown-у)
     if pos * dir_ > 0 and not update_and_check_cooldown(sym, sig_upper, now, GEN_COOLDOWN_SEC):
         qty = add_q
-        if exceeds_limit(sym, side, qty, pos):
-            await send_telegram_log(f"❌ {sym}: max {max_q}")
-            return {"status": "limit"}
-        res = await place_and_ensure(sym, side, qty)
+        res = await place_with_limit(sym, side, qty)
         if res:
-            new_pos = pos + qty if dir_ > 0 else pos - qty
-            _apply_position_update(sym, pos, side, qty, res["price"])
-            await log_balance()
+            new_pos = (await get_current_positions()).get(sym, 0)
             await send_telegram_log(f"➕ avg {sym}: {new_pos:+}")
-        return {"status": "avg", "filled": qty}
+            return {"status": "avg", "filled": res["qty"]}
+        return {"status": "order_failed"}
 
     # open
     if pos == 0:
         qty = start_q
-        if exceeds_limit(sym, side, qty, pos):
-            await send_telegram_log(f"❌ {sym}: max {max_q}")
-            return {"status": "limit"}
-        res = await place_and_ensure(sym, side, qty)
+        res = await place_with_limit(sym, side, qty)
         if res:
-            _apply_position_update(sym, pos, side, qty, res["price"])
-            await log_balance()
-            await send_telegram_log(f"✅ open {sym} {qty:+}")
-        return {"status": "open", "filled": qty}
+            await send_telegram_log(f"✅ open {sym} {res['qty']:+}")
+            return {"status": "open", "filled": res["qty"]}
+        return {"status": "order_failed"}
 
     return {"status": "noop"}
 
