@@ -1,11 +1,20 @@
 # trading.py
 # ─────────────────────────────────────────────────────────────────────────────
+# 2025-08-15  patch-28
+#
+# ИЗМЕНЕНО ТОЛЬКО ОГРАНИЧЕНИЯ (cooldown):
+# • TPL/TPS: теперь 60 минут (ранее 30).
+# • RSI<30 / RSI>70:
+#     ─ CNY9.26  → 5 часов (без изменений)
+#     ─ NG-8.25  → 30 минут (ранее 90)
+#
 # ВАЖНО: Остальная логика НЕ тронута:
 #   ─ TPL/TPS: первый сигнал → flip + START_QTY; повторный подряд → усреднение ADD_QTY.
 #   ─ RSI 30/70: если уже в направлении (или после TP в ту же сторону) → ADD_QTY,
 #                 иначе flip/START_QTY.
 #   ─ RSI 20/80, LONG/SHORT — как было.
 #   ─ TPL2/TPS2 — игнорируются как «unknown action».
+#   ─ MAX_QTY: жёсткий контроль через cap_qty_to_max() / place_with_limit().
 # ─────────────────────────────────────────────────────────────────────────────
 import asyncio, time
 from telegram_logger import send_telegram_log
@@ -25,12 +34,14 @@ last_signal_ts: dict[str, float] = {}   # метки времени прочих
 # ───────── cooldown-ы ───────────────────────────────────────────────────────
 RSI_COOLDOWN_SEC_DEFAULT = 60 * 60   # 60 минут по умолчанию для RSI<30/RSI>70
 GEN_COOLDOWN_SEC         = 60 * 60   # для RSI<20/80 и LONG/SHORT
-TP_COOLDOWN_SEC          = {v["trade"]: 30 * 60 for v in TICKER_MAP.values()}
 
-# Индивидуальные RSI<30/RSI>70 кулдауны (оставлено как есть)
+# TPL/TPS: ТЕПЕРЬ 60 минут ДЛЯ ВСЕХ
+TP_COOLDOWN_SEC          = {v["trade"]: 60 * 60 for v in TICKER_MAP.values()}
+
+# Индивидуальные RSI<30/RSI>70 кулдауны
 RSI_CD_MAP = {
-    "CNY9.26": 5 * 60 * 60,   # 5 часов
-    "NG-8.25": 90 * 60        # 90 минут
+    "CNY9.26": 5 * 60 * 60,   # 5 часов (без изменений)
+    "NG-8.25": 30 * 60        # 30 минут (БЫЛО 90)
 }
 get_rsi_cooldown = lambda sym: RSI_CD_MAP.get(sym, RSI_COOLDOWN_SEC_DEFAULT)
 
@@ -155,7 +166,8 @@ async def process_signal(tv_tkr: str, sig: str):
 
     # ──────────────────────────── TPL / TPS ──────────────────────────
     if sig_upper in ("TPL", "TPS"):
-        cd = TP_COOLDOWN_SEC.get(sym, 30 * 60)
+        # Fallback теперь тоже 60 мин
+        cd = TP_COOLDOWN_SEC.get(sym, 60 * 60)
         if now - last_tp_signal.get(f"{sym}:{sig_upper}", 0) < cd:
             await send_telegram_log(f"⏳ {sig_upper} ignored ({cd//60}m CD)")
             return {"status": "tp_cooldown"}
@@ -187,7 +199,7 @@ async def process_signal(tv_tkr: str, sig: str):
 
     # ───────────────────────── RSI<30 / RSI>70 ───────────────────────
     if sig_upper in ("RSI<30", "RSI>70"):
-        # Индивидуальный cooldown
+        # Индивидуальный cooldown (CNY9.26 — 5ч, NG-8.25 — 30 мин, прочие — 60 мин)
         if update_and_check_cooldown(sym, sig_upper, now, get_rsi_cooldown(sym)):
             return {"status": "rsi_cooldown"}
 
