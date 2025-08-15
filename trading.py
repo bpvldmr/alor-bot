@@ -1,6 +1,6 @@
 # trading.py
 # ─────────────────────────────────────────────────────────────────────────────
-# 2025‑07‑22  patch‑22
+# 2025-07-22  patch-22
 #
 # • Новое общее правило усреднения для ВСЕХ сигналов:
 #   Если сигнал пришёл и позиция уже есть в нужном направлении,
@@ -13,9 +13,9 @@
 #   остаётся прежним: переворот (закрыть всё + открыть START_QTY)
 #   или просто открыть START_QTY.
 #
-# • Блок TPL / TPS из patch‑21 (переворот с полным START_QTY) сохранён.
+# • Блок TPL / TPS из patch-21 (переворот с полным START_QTY) сохранён.
 # • Контроль MAX_QTY — без изменений, перед любой заявкой.
-# • Cooldown‑ы — без изменений, используются helper‑функции.
+# • Cooldown-ы — без изменений, используются helper-функции.
 # ─────────────────────────────────────────────────────────────────────────────
 import asyncio, time
 from telegram_logger import send_telegram_log
@@ -25,18 +25,32 @@ from balance  import log_balance
 from pnl_calc import get_last_trade_price
 
 # ──────────── глобальные состояния ──────────────────────────────────────────
-current_positions            = {v["trade"]: 0 for v in TICKER_MAP.values()}
+current_positions              = {v["trade"]: 0 for v in TICKER_MAP.values()}
 entry_prices: dict[str, float] = {}
 
 last_tp_signal: dict[str, float] = {}
 last_tp_state:  dict[str, int]   = {}   # 1 = был TPL, –1 = был TPS
 last_signal_ts:dict[str, float]  = {}
 
-RSI_COOLDOWN_SEC = 60 * 60
-GEN_COOLDOWN_SEC = 60 * 60
-TP_COOLDOWN_SEC  = {v["trade"]: 30 * 60 for v in TICKER_MAP.values()}
+# Базовые кулдауны (по умолчанию для всех инструментов)
+RSI_COOLDOWN_SEC = 60 * 60       # 1 час
+GEN_COOLDOWN_SEC = 60 * 60       # 1 час
 
-# ───────── helper‑функции ───────────────────────────────────────────────────
+# Индивидуальные кулдауны для RSI<30/RSI>70:
+#   • NG-8.25 — 30 минут
+#   • CNY-9.25 — 5 часов
+RSI30_70_COOLDOWN_SEC = {
+    "NG-8.25": 30 * 60,
+    "CNY-9.25": 5 * 60 * 60,
+}
+
+# Индивидуальный кулдаун для TPL/TPS только для NG-8.25 = 30 минут.
+# Для остальных инструментов ниже используем дефолт 60 минут.
+TP_COOLDOWN_SEC = {
+    "NG-8.25": 30 * 60,
+}
+
+# ───────── helper-функции ───────────────────────────────────────────────────
 def exceeds_limit(sym: str, side: str, qty: int, cur_pos: int) -> bool:
     new_pos = cur_pos + qty if side == "buy" else cur_pos - qty
     return abs(new_pos) > MAX_QTY[sym]
@@ -64,7 +78,7 @@ def desired_direction(sig_upper: str) -> int:
 # ───────── биржевые утилы ───────────────────────────────────────────────────
 async def execute_market_order(sym: str, side: str, qty: int,
                                *, retries: int = 3, delay: int = 300):
-    """Отправка маркет‑ордера + фактическая цена из /trades."""
+    """Отправка маркет-ордера + фактическая цена из /trades."""
     for attempt in range(1, retries + 1):
         resp = await place_order({"side": side.upper(),
                                   "qty":  qty,
@@ -125,7 +139,8 @@ async def process_signal(tv_tkr: str, sig: str):
 
     # ──────────────────────────── TPL / TPS ──────────────────────────
     if sig_upper in ("TPL", "TPS"):
-        cd = TP_COOLDOWN_SEC.get(sym, 30*60)
+        # только для NG-8.25 = 30 минут; остальные — 60 минут по умолчанию
+        cd = TP_COOLDOWN_SEC.get(sym, 60*60)
         if now - last_tp_signal.get(f"{sym}:{sig_upper}", 0) < cd:
             await send_telegram_log(f"⏳ {sig_upper} ignored ({cd//60}m CD)")
             return {"status": "tp_cooldown"}
@@ -176,7 +191,9 @@ async def process_signal(tv_tkr: str, sig: str):
 
     # ───────────────────────── RSI<30 / RSI>70 ───────────────────────
     if sig_upper in ("RSI<30", "RSI>70"):
-        if update_and_check_cooldown(sym, sig_upper, now, RSI_COOLDOWN_SEC):
+        # NG-8.25 — 30 минут; CNY-9.25 — 5 часов; остальные — 1 час (по умолчанию)
+        cd_rsi = RSI30_70_COOLDOWN_SEC.get(sym, RSI_COOLDOWN_SEC)
+        if update_and_check_cooldown(sym, sig_upper, now, cd_rsi):
             return {"status": "rsi_cooldown"}
 
         want_dir = desired_direction(sig_upper)  # +1 или -1
