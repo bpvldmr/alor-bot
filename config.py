@@ -1,7 +1,7 @@
 # ✅ Файл: config.py
 # Проект полностью перешёл на работу с биржевыми символами:
 #   • CNY-9.25  (фьючерс CNY/RUB SEP-25)
-#   • NG-8.25   (фьючерс Natural Gas )
+#   • NG-9.25   (фьючерс Natural Gas )
 
 import os
 from dotenv import load_dotenv
@@ -28,13 +28,13 @@ TICKER_MAP = {
         "trade":  "CNY-9.25",    # внутренний ключ = биржевой symbol
         "symbol": "CNY-9.25"     # то же значение уходит в ALOR-API
     },
-    "MOEX:NGQ2025": {            # TradingView-тикер газового фьючерса
-        "trade":  "NG-8.25",
-        "symbol": "NG-8.25"
+    "MOEX:NGU2025": {            # TradingView-тикер газового фьючерса
+        "trade":  "NG-9.25",
+        "symbol": "NG-9.25"
     }
 }
 
 # --- объёмы для бота --------------------------------------------------------
-START_QTY = { "CNY-9.25": 5, "NG-8.25": 6 }
-ADD_QTY   = { "CNY-9.25":  5, "NG-8.25": 1 }
-MAX_QTY   = { "CNY-9.25": 15, "NG-8.25": 10 }
+START_QTY = { "CNY-9.25": 5, "NG-9.25": 6 }
+ADD_QTY   = { "CNY-9.25":  5, "NG-9.25": 1 }
+MAX_QTY   = { "CNY-9.25": 15, "NG-9.25": 10 }
