@@ -28,7 +28,7 @@ TICKER_MAP = {
         "trade":  "CNY-9.25",    # внутренний ключ = биржевой symbol
         "symbol": "CNY-9.25"     # то же значение уходит в ALOR-API
     },
-    "MOEX:NGU2025": {            # TradingView-тикер газового фьючерса
+    "MOEX:NGQ2025": {            # TradingView-тикер газового фьючерса
         "trade":  "NG-9.25",
         "symbol": "NG-9.25"
     }
