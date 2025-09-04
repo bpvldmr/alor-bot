@@ -137,23 +137,25 @@ async def process_signal(tv_tkr: str, sig: str):
 
     pos  = (await get_current_positions()).get(sym, 0)
 
-    # ──────────────────────────── TPL / TPS ──────────────────────────
+        # ──────────────────────────── TPL / TPS ──────────────────────────
     if sig_upper in ("TPL", "TPS"):
-        # только для NG-9.25 = 30 минут; остальные — 60 минут по умолчанию
+        # кулдаун: NG-9.25 = 30м; остальные = 60м
         cd = TP_COOLDOWN_SEC.get(sym, 60*60)
         if now - last_tp_signal.get(f"{sym}:{sig_upper}", 0) < cd:
             await send_telegram_log(f"⏳ {sig_upper} ignored ({cd//60}m CD)")
             return {"status": "tp_cooldown"}
         last_tp_signal[f"{sym}:{sig_upper}"] = now
 
-        if sig_upper == "TPL":                     # фиксируем лонг → шорт
-            side = "sell"
-            qty  = abs(pos) + START_QTY[sym] if pos > 0 else START_QTY[sym]
-            last_tp_state[sym] = 1
-        else:                                     # TPS: фиксируем шорт → лонг
-            side = "buy"
-            qty  = abs(pos) + START_QTY[sym] if pos < 0 else START_QTY[sym]
-            last_tp_state[sym] = -1
+        # цель направления: TPL → шорт (-1), TPS → лонг (+1)
+        want_dir = -1 if sig_upper == "TPL" else +1
+        side     = "sell" if want_dir < 0 else "buy"
+
+        if pos == 0:
+            qty = START_QTY[sym]
+        elif pos * want_dir < 0:
+            qty = abs(pos) + START_QTY[sym]   # flip
+        else:
+            qty = ADD_QTY[sym]                # averaging (was START_QTY before)
 
         if exceeds_limit(sym, side, qty, pos):
             await send_telegram_log(f"❌ {sym}: max {MAX_QTY[sym]}")
@@ -162,6 +164,8 @@ async def process_signal(tv_tkr: str, sig: str):
         res = await place_and_ensure(sym, side, qty)
         if res:
             _apply_position_update(sym, pos, side, qty, res["price"])
+            # флаг последнего TP-состояния (используется для TPL2/TPS2)
+            last_tp_state[sym] = 1 if sig_upper == "TPL" else -1
             await log_balance()
             await send_telegram_log(f"💰 {sig_upper} {sym}: {side} {qty} @ {res['price']:.2f}")
         return {"status": sig_upper.lower()}
