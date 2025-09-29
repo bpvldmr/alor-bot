@@ -240,7 +240,6 @@ async def process_signal(tv_tkr: str, sig: str):
             await send_telegram_log(f"➕ {sig_upper} {sym}: {side} {qty} @ {res['price']:.2f}")
         return {"status": sig_upper.lower()}
 
-
     # ───────────────────────── RSI<30 / RSI>70 ───────────────────────
     if sig_upper in ("RSI<30", "RSI>70"):
         # NG-10.25 — 30 минут; CNY-9.25 — 5 часов; остальные — 1 час (по умолчанию)
@@ -248,54 +247,53 @@ async def process_signal(tv_tkr: str, sig: str):
         if update_and_check_cooldown(sym, sig_upper, now, cd_rsi):
             return {"status": "rsi_cooldown"}
 
-        want_dir = desired_direction(sig_upper)  # +1 или -1
-        same_dir = (pos * want_dir) > 0
+        # Всегда берём ТЕКУЩУЮ позицию из запроса перед действием
+        cur_pos = (await get_current_positions()).get(sym, 0)
 
-        if same_dir:
-            # уже в нужном направлении → УСРЕДНЕНИЕ ADD_QTY
-            side = "buy" if want_dir > 0 else "sell"
-            qty  = ADD_QTY[sym]
+        if sig_upper == "RSI<30":
+            # Если был ШОРТ → откупить половину позиции
+            if cur_pos < 0:
+                half = (abs(cur_pos) + 1) // 2  # округление вверх, чтобы не уйти в 0 при 1 контракте
+                if half <= 0:
+                    await send_telegram_log(f"⏭️ {sig_upper} {sym}: nothing to cover")
+                    return {"status": "noop"}
+                side = "buy"
+                qty  = half
+                # лимит не превысим, т.к. сокращаем позицию, но оставим проверку как везде
+                if exceeds_limit(sym, side, qty, cur_pos):
+                    await send_telegram_log(f"❌ {sym}: max {MAX_QTY[sym]}")
+                    return {"status": "limit"}
+                res = await place_and_ensure(sym, side, qty)
+                if res:
+                    _apply_position_update(sym, cur_pos, side, qty, res["price"])
+                    await log_balance()
+                    await send_telegram_log(f"🟢 {sig_upper} {sym}: buy to cover {qty} @ {res['price']:.2f}")
+                return {"status": "rsi30_half_cover"}
+            else:
+                await send_telegram_log(f"⏭️ {sig_upper} {sym}: no short to cover")
+                return {"status": "noop"}
+
+        # sig_upper == "RSI>70"
+        # Если был ЛОНГ → продать половину позиции
+        if cur_pos > 0:
+            half = (cur_pos + 1) // 2  # округление вверх
+            if half <= 0:
+                await send_telegram_log(f"⏭️ {sig_upper} {sym}: nothing to sell")
+                return {"status": "noop"}
+            side = "sell"
+            qty  = half
+            if exceeds_limit(sym, side, qty, cur_pos):
+                await send_telegram_log(f"❌ {sym}: max {MAX_QTY[sym]}")
+                return {"status": "limit"}
+            res = await place_and_ensure(sym, side, qty)
+            if res:
+                _apply_position_update(sym, cur_pos, side, qty, res["price"])
+                await log_balance()
+                await send_telegram_log(f"🔻 {sig_upper} {sym}: sell {qty} @ {res['price']:.2f}")
+            return {"status": "rsi70_half_reduce"}
         else:
-            # позиция отсутствует или она противоположная → переворот
-            side = "buy" if want_dir > 0 else "sell"
-            qty  = abs(pos) + START_QTY[sym] if pos != 0 else START_QTY[sym]
-
-        if exceeds_limit(sym, side, qty, pos):
-            await send_telegram_log(f"❌ {sym}: max {MAX_QTY[sym]}")
-            return {"status": "limit"}
-
-        res = await place_and_ensure(sym, side, qty)
-        if res:
-            _apply_position_update(sym, pos, side, qty, res["price"])
-            await log_balance()
-            await send_telegram_log(f"🔔 {sig_upper} {sym}: {side} {qty}")
-        return {"status": sig_upper.lower()}
-
-    # ───────────────────────── RSI<20 / RSI>80 ───────────────────────
-    if sig_upper in ("RSI<20", "RSI>80"):
-        if update_and_check_cooldown(sym, sig_upper, now, GEN_COOLDOWN_SEC):
-            return {"status": "rsi_cooldown"}
-
-        want_dir = desired_direction(sig_upper)
-        same_dir = (pos * want_dir) > 0
-
-        if same_dir:
-            side = "buy" if want_dir > 0 else "sell"
-            qty  = ADD_QTY[sym]
-        else:
-            side = "buy" if want_dir > 0 else "sell"
-            qty  = abs(pos) + START_QTY[sym] if pos != 0 else START_QTY[sym]
-
-        if exceeds_limit(sym, side, qty, pos):
-            await send_telegram_log(f"❌ {sym}: max {MAX_QTY[sym]}")
-            return {"status": "limit"}
-
-        res = await place_and_ensure(sym, side, qty)
-        if res:
-            _apply_position_update(sym, pos, side, qty, res["price"])
-            await log_balance()
-            await send_telegram_log(f"{sig_upper} {sym}: {side} {qty}")
-        return {"status": sig_upper.lower()}
+            await send_telegram_log(f"⏭️ {sig_upper} {sym}: no long to reduce")
+            return {"status": "noop"}
 
     # ───────────────────────── LONG / SHORT ──────────────────────────
     if sig_upper not in ("LONG", "SHORT"):
