@@ -137,7 +137,7 @@ async def process_signal(tv_tkr: str, sig: str):
 
     pos  = (await get_current_positions()).get(sym, 0)
 
-        # ──────────────────────────── TPL / TPS ──────────────────────────
+      # ──────────────────────────── TPL / TPS ──────────────────────────
     if sig_upper in ("TPL", "TPS"):
         # кулдаун: NG-10.25 = 30м; остальные = 60м
         cd = TP_COOLDOWN_SEC.get(sym, 60*60)
@@ -148,27 +148,75 @@ async def process_signal(tv_tkr: str, sig: str):
 
         # цель направления: TPL → шорт (-1), TPS → лонг (+1)
         want_dir = -1 if sig_upper == "TPL" else +1
-        side     = "sell" if want_dir < 0 else "buy"
 
-        if pos == 0:
-            qty = START_QTY[sym]
-        elif pos * want_dir < 0:
-            qty = abs(pos) + START_QTY[sym]   # flip
-        else:
-            qty = ADD_QTY[sym]                # averaging (was START_QTY before)
+        # 1) Если позиция уже в нужном направлении — БЕЗ усреднений, просто игнорируем
+        if (pos > 0 and want_dir > 0) or (pos < 0 and want_dir < 0):
+            await send_telegram_log(f"⏭️ {sig_upper} {sym}: already in direction, no averaging")
+            return {"status": "no_averaging"}
 
-        if exceeds_limit(sym, side, qty, pos):
-            await send_telegram_log(f"❌ {sym}: max {MAX_QTY[sym]}")
-            return {"status": "limit"}
+        # 2) Если позиция противоположная — ПОЛНЫЙ переворот:
+        #    сначала закрываем ВЕСЬ текущий объём, затем открываем РОВНО START_QTY в сторону сигнала
+        if pos * want_dir < 0:
+            # 2.1 Закрыть всю текущую позицию
+            close_side = "sell" if pos > 0 else "buy"
+            close_qty  = abs(pos)
+            res_close  = await place_and_ensure(sym, close_side, close_qty)
+            if not res_close:
+                await send_telegram_log(f"❌ {sig_upper} {sym}: close failed")
+                return {"status": "close_failed"}
 
-        res = await place_and_ensure(sym, side, qty)
-        if res:
-            _apply_position_update(sym, pos, side, qty, res["price"])
-            # флаг последнего TP-состояния (используется для TPL2/TPS2)
-            last_tp_state[sym] = 1 if sig_upper == "TPL" else -1
+            _apply_position_update(sym, pos, close_side, close_qty, res_close["price"])
+            await send_telegram_log(
+                f"🔁 {sig_upper} {sym}: close {close_side} {close_qty} @ {res_close['price']:.2f}"
+            )
+            pos = 0  # позиция обнулена
+
+            # 2.2 Открыть START_QTY в сторону сигнала
+            open_side = "buy" if want_dir > 0 else "sell"
+            qty_open  = START_QTY[sym]
+
+            if exceeds_limit(sym, open_side, qty_open, pos):
+                await send_telegram_log(f"❌ {sym}: max {MAX_QTY[sym]}")
+                return {"status": "limit"}
+
+            res_open = await place_and_ensure(sym, open_side, qty_open)
+            if not res_open:
+                await send_telegram_log(f"❌ {sig_upper} {sym}: open failed")
+                return {"status": "open_failed"}
+
+            _apply_position_update(sym, 0, open_side, qty_open, res_open["price"])
+            last_tp_state[sym] = 1 if sig_upper == "TPL" else -1  # флаг для TPL2/TPS2
             await log_balance()
-            await send_telegram_log(f"💰 {sig_upper} {sym}: {side} {qty} @ {res['price']:.2f}")
-        return {"status": sig_upper.lower()}
+            await send_telegram_log(
+                f"✅ {sig_upper} {sym}: open {open_side} {qty_open} @ {res_open['price']:.2f}"
+            )
+            return {"status": sig_upper.lower()}
+
+        # 3) Если позиции нет — открыть START_QTY в сторону сигнала
+        if pos == 0:
+            side = "buy" if want_dir > 0 else "sell"
+            qty  = START_QTY[sym]
+
+            if exceeds_limit(sym, side, qty, pos):
+                await send_telegram_log(f"❌ {sym}: max {MAX_QTY[sym]}")
+                return {"status": "limit"}
+
+            res = await place_and_ensure(sym, side, qty)
+            if not res:
+                await send_telegram_log(f"❌ {sig_upper} {sym}: open failed")
+                return {"status": "open_failed"}
+
+            _apply_position_update(sym, pos, side, qty, res["price"])
+            last_tp_state[sym] = 1 if sig_upper == "TPL" else -1  # флаг для TPL2/TPS2
+            await log_balance()
+            await send_telegram_log(
+                f"🆕 {sig_upper} {sym}: {side} {qty} @ {res['price']:.2f}"
+            )
+            return {"status": sig_upper.lower()}
+
+        # На всякий случай (не должны сюда попасть)
+        await send_telegram_log(f"⚠️ {sig_upper} {sym}: unexpected state")
+        return {"status": "noop"}
 
     # ─────────────── TPL2 / TPS2 — усреднение ТОЛЬКО после TPL / TPS ─────────
     if sig_upper in ("TPL2", "TPS2"):
