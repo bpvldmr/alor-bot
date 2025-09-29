@@ -218,18 +218,13 @@ async def process_signal(tv_tkr: str, sig: str):
         await send_telegram_log(f"⚠️ {sig_upper} {sym}: unexpected state")
         return {"status": "noop"}
 
-    # ─────────────── TPL2 / TPS2 — усреднение ТОЛЬКО после TPL / TPS ─────────
+      # ─────────────── TPL2 / TPS2 — усреднение по ADD_QTY, без условий ────────
     if sig_upper in ("TPL2", "TPS2"):
-        state = last_tp_state.get(sym, 0)
-        # TPL2 разрешён только если до этого был TPL (state == 1)
-        # TPS2 разрешён только если до этого был TPS (state == -1)
-        if (sig_upper == "TPL2" and state != 1) or (sig_upper == "TPS2" and state != -1):
-            await send_telegram_log(
-                f"⏭️ {sig_upper} проигнорирован: не было {'TPL' if sig_upper == 'TPL2' else 'TPS'}"
-            )
-            return {"status": f"{sig_upper.lower()}_ignored"}
-
-        side = "sell" if sig_upper == "TPL2" else "buy"
+        # Новая логика:
+        #  • TPS2 → всегда ПОКУПКА (buy) на ADD_QTY[sym]
+        #  • TPL2 → всегда ПРОДАЖА (sell) на ADD_QTY[sym]
+        #  • Неважно, какая сейчас позиция (лонг/шорт/нулевая) — просто исполняем усреднение ADD_QTY.
+        side = "buy" if sig_upper == "TPS2" else "sell"
         qty  = ADD_QTY[sym]
 
         if exceeds_limit(sym, side, qty, pos):
@@ -239,10 +234,12 @@ async def process_signal(tv_tkr: str, sig: str):
         res = await place_and_ensure(sym, side, qty)
         if res:
             _apply_position_update(sym, pos, side, qty, res["price"])
-            last_tp_state[sym] = 0  # сбрасываем флаг
+            # Сбрасываем флаг как и раньше (если использовался где-то ещё)
+            last_tp_state[sym] = 0
             await log_balance()
             await send_telegram_log(f"➕ {sig_upper} {sym}: {side} {qty} @ {res['price']:.2f}")
         return {"status": sig_upper.lower()}
+
 
     # ───────────────────────── RSI<30 / RSI>70 ───────────────────────
     if sig_upper in ("RSI<30", "RSI>70"):
