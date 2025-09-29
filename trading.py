@@ -37,17 +37,17 @@ RSI_COOLDOWN_SEC = 60 * 60       # 1 час
 GEN_COOLDOWN_SEC = 60 * 60       # 1 час
 
 # Индивидуальные кулдауны для RSI<30/RSI>70:
-#   • NG-9.25 — 30 минут
+#   • NG-10.25 — 30 минут
 #   • CNY-9.25 — 5 часов
 RSI30_70_COOLDOWN_SEC = {
-    "NG-9.25": 30 * 60,
+    "NG-10.25": 30 * 60,
     "CNY-9.25": 5 * 60 * 60,
 }
 
-# Индивидуальный кулдаун для TPL/TPS только для NG-9.25 = 30 минут.
+# Индивидуальный кулдаун для TPL/TPS только для NG-10.25 = 30 минут.
 # Для остальных инструментов ниже используем дефолт 60 минут.
 TP_COOLDOWN_SEC = {
-    "NG-9.25": 30 * 60,
+    "NG-10.25": 30 * 60,
 }
 
 # ───────── helper-функции ───────────────────────────────────────────────────
@@ -139,7 +139,7 @@ async def process_signal(tv_tkr: str, sig: str):
 
         # ──────────────────────────── TPL / TPS ──────────────────────────
     if sig_upper in ("TPL", "TPS"):
-        # кулдаун: NG-9.25 = 30м; остальные = 60м
+        # кулдаун: NG-10.25 = 30м; остальные = 60м
         cd = TP_COOLDOWN_SEC.get(sym, 60*60)
         if now - last_tp_signal.get(f"{sym}:{sig_upper}", 0) < cd:
             await send_telegram_log(f"⏳ {sig_upper} ignored ({cd//60}m CD)")
@@ -198,7 +198,7 @@ async def process_signal(tv_tkr: str, sig: str):
 
     # ───────────────────────── RSI<30 / RSI>70 ───────────────────────
     if sig_upper in ("RSI<30", "RSI>70"):
-        # NG-9.25 — 30 минут; CNY-9.25 — 5 часов; остальные — 1 час (по умолчанию)
+        # NG-10.25 — 30 минут; CNY-9.25 — 5 часов; остальные — 1 час (по умолчанию)
         cd_rsi = RSI30_70_COOLDOWN_SEC.get(sym, RSI_COOLDOWN_SEC)
         if update_and_check_cooldown(sym, sig_upper, now, cd_rsi):
             return {"status": "rsi_cooldown"}
