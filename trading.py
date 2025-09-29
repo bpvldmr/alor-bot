@@ -295,55 +295,43 @@ async def process_signal(tv_tkr: str, sig: str):
             await send_telegram_log(f"⏭️ {sig_upper} {sym}: no long to reduce")
             return {"status": "noop"}
 
-    # ───────────────────────── LONG / SHORT ──────────────────────────
+      # ───────────────────────── LONG / SHORT ──────────────────────────
     if sig_upper not in ("LONG", "SHORT"):
         await send_telegram_log(f"⚠️ Unknown action {sig_upper}")
-        return {"status":"invalid_action"}
+        return {"status": "invalid_action"}
 
     dir_ = 1 if sig_upper == "LONG" else -1
     side = "buy" if dir_ > 0 else "sell"
 
-    # flip
-    if pos * dir_ < 0:
-        qty = abs(pos) + START_QTY[sym]
-        if exceeds_limit(sym, side, qty, pos):
-            await send_telegram_log(f"❌ {sym}: max {MAX_QTY[sym]}")
-            return {"status":"limit"}
-        res = await place_and_ensure(sym, side, qty)
-        if res:
-            _apply_position_update(sym, pos, side, qty, res["price"])
-            await log_balance()
-            await send_telegram_log(f"🟢 flip {sym}")
-        return {"status":"flip"}
+    # NEW: добавляем только если уже есть позиция в ту же сторону
+    if pos * dir_ > 0:
+        # опционально уважаем общий кулдаун, как и раньше
+        if update_and_check_cooldown(sym, sig_upper, now, GEN_COOLDOWN_SEC):
+            return {"status": "cooldown"}
 
-    # averaging / repeat (ADD_QTY) — как и раньше
-    if pos * dir_ > 0 and not update_and_check_cooldown(sym, sig_upper, now, GEN_COOLDOWN_SEC):
-        qty = ADD_QTY[sym]
+        # ½ от START_QTY, округление вверх, минимум 1
+        half_start = max(1, (START_QTY[sym] + 1) // 2)
+        qty = half_start
+
         if exceeds_limit(sym, side, qty, pos):
             await send_telegram_log(f"❌ {sym}: max {MAX_QTY[sym]}")
-            return {"status":"limit"}
+            return {"status": "limit"}
+
         res = await place_and_ensure(sym, side, qty)
         if res:
             new_pos = pos + qty if dir_ > 0 else pos - qty
             _apply_position_update(sym, pos, side, qty, res["price"])
             await log_balance()
-            await send_telegram_log(f"➕ avg {sym}: {new_pos:+}")
-        return {"status":"avg"}
+            await send_telegram_log(
+                f"➕ {sig_upper} add {sym}: {qty} (½ START_QTY) ⇒ {new_pos:+}"
+            )
+        return {"status": "half_start_add"}
 
-    # open
-    if pos == 0:
-        qty = START_QTY[sym]
-        if exceeds_limit(sym, side, qty, pos):
-            await send_telegram_log(f"❌ {sym}: max {MAX_QTY[sym]}")
-            return {"status":"limit"}
-        res = await place_and_ensure(sym, side, qty)
-        if res:
-            _apply_position_update(sym, pos, side, qty, res["price"])
-            await log_balance()
-            await send_telegram_log(f"✅ open {sym} {qty:+}")
-        return {"status":"open"}
-
-    return {"status":"noop"}
+    # НЕТ действий при противоположной или нулевой позиции — строго без переворотов и открытий
+    await send_telegram_log(
+        f"⏭️ {sig_upper} {sym}: no same-direction position (no flips, no opens)"
+    )
+    return {"status": "noop"}
 
 
 __all__ = ["process_signal"]
